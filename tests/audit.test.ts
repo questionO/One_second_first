@@ -54,7 +54,8 @@ describe('审计：模拟边界', () => {
   });
   it('过期金币不能在加速的第二个子步被拾取', () => {
     const s = empty(); s.wavesEnabled = true; s.waveLeft = 1; s.mode = 'repay'; s.debt = 2; s.dueAt = 480;
-    s.coins = [{ id: 999, x: 500, y: 238, risk: false }];
+    s.player.x = 100;
+    s.coins = [{ id: 999, x: 120, y: 238, risk: false }];
     step(s, { x: 1, y: 0 });
     expect(s.score).toBe(0);
   });

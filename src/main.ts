@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { createRun, step, borrowBlockReason, canRepay, latestRepayIn } from './game/simulation';
 import { HZ, RULES_VERSION } from './game/balance';
-import { PATTERNS } from './game/patterns';
+import { PATTERNS, spawnWave } from './game/patterns';
 import { FixedClock } from './game/clock';
 import type { RunSnapshot, InputFrame } from './game/types';
 import { SaveStore } from './storage';
@@ -15,11 +15,11 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = '<header class="site-header"><a class="brand" href="./" aria-label="先欠一秒首页"><span class="brand-icon">↶</span><span>先欠一秒<small>借来的奖励，要活着兑现。</small></span></a><div class="personal-best"><span>个人最佳</span><strong id="header-best">00000</strong></div></header>' +
  '<main><div id="cabinet" class="cabinet" data-mode="normal"><div id="canvas-host"></div>' +
  '<div class="hud" id="hud"><div class="score"><span class="eyebrow">本局得分</span><div id="score-number"></div></div><div class="escrow"><span class="eyebrow">待兑现</span><strong id="pending">0 <i>→</i> 0</strong></div><div class="debt"><div><span id="mode-label">时间正常</span><strong id="debt-number">0.0 秒</strong></div><div class="debt-meter"><i id="debt-fill"></i><b></b><b></b></div><small id="deadline">随时可以借一秒</small></div><button id="pause-button" class="icon-button" aria-label="暂停游戏">Ⅱ</button></div>' +
- '<div class="field-caption"><span id="wave-label">准备出发</span><span id="world-label">00:00</span></div>' +
+ '<div class="field-caption"><span id="wave-label">准备出发</span><span id="pattern-hint"></span><span id="world-label">00:00</span></div>' +
  '<div class="controls" id="controls"><div class="movement"><div id="joystick" class="joystick" aria-label="移动摇杆"><span class="joystick-cross"></span><i id="thumb"></i></div><div class="keyboard-hint"><kbd>W</kbd><div><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><small>移动</small></div></div><div class="action-buttons"><button id="borrow-button" class="borrow-button"><span class="button-symbol">❄</span><span><strong>借 1 秒</strong><small id="borrow-hint">空格</small></span></button><button id="repay-button" class="repay-button"><span class="button-symbol">»</span><span><strong>开始还债</strong><small id="repay-hint">E</small></span></button></div></div>' +
  '<div id="tutorial-banner" class="tutorial-banner" hidden></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>' +
  '<div id="overlay" class="overlay"><section id="panel" class="panel" aria-label="游戏菜单"></section></div>' +
- '<div id="orientation" class="orientation" hidden><span>↻</span><h2>横过来，借一秒</h2><p>左手移动，右手掌控时间。</p><small>本局已暂停，横屏后点击继续。</small></div>' +
+ '<div id="orientation" class="orientation" hidden><span>↻</span><h2>横过来，借一秒</h2><p>浏览器没有自动旋转？<br>点击下方按钮，再把手机横着拿。</p><button class="primary" data-action="landscape">直接横屏试玩</button><small>左手移动，右手掌控时间。</small></div>' +
  '<div id="debug" class="debug" hidden></div></div><div class="below"><span><i></i> 单人街机挑战</span><span id="storage-note">纪录保存在当前浏览器</span><button data-action="settings">声音与显示</button></div></main>' +
  '<footer>现在的一秒，未来来还。<span>移动 · 借时 · 活着兑现</span></footer>';
 const el = <T extends HTMLElement = HTMLElement>(id:string) => document.getElementById(id) as T;
@@ -34,12 +34,14 @@ type Screen = 'menu'|'play'|'tutorial'|'tutorial-failed'|'tutorial-complete'|'pa
 let screen: Screen = 'menu', returnFromSettings: Screen = 'menu';
 let tutorialStep = 0, resumeAt = 0, unlockAt = 0, toastUntil = 0, lastHud = 0, lastScore = -1;
 let lastDelta = 0, disposed = false, resultIsBest = false;
+let forceLandscape = false, lastPortrait = isPortrait();
 const overlay = el('overlay'), panel = el('panel'), borrowButton = el<HTMLButtonElement>('borrow-button'), repayButton = el<HTMLButtonElement>('repay-button');
 const params = new URLSearchParams(location.search);
 let debugEnabled = import.meta.env.DEV && params.has('debug');
 const input = new InputController(el('joystick'),el('thumb'),borrowButton,repayButton,
   () => { if (screen==='play'||screen==='tutorial'||screen==='resume') pause('先喘口气'); else if(screen==='pause') resume(); },
-  () => { if(screen==='menu') start(); else if(screen==='tutorial-complete'||(screen==='result'&&performance.now()>=unlockAt)) startRun(); else if(screen==='pause') resume(); });
+  () => { if(screen==='menu') start(); else if(screen==='tutorial-complete'||(screen==='result'&&performance.now()>=unlockAt)) startRun(); else if(screen==='pause') resume(); },
+  () => document.body.classList.contains('forced-landscape'));
 const scene = new ArenaScene(() => run, () => saves.data.settings, frame, () => debugEnabled);
 const game = new Phaser.Game({
   type: Phaser.AUTO, parent: 'canvas-host', width: 960, height: 540, backgroundColor: '#101a3a',
@@ -75,13 +77,13 @@ function showMenu() {
 }
 function start() { audio.unlock().catch(()=>{}); if(!saves.data.tutorialDone) startTutorial(0); else startRun(); }
 function startRun(seed=newSeed()) {
-  if(isPortrait()) return;
+  if(orientationBlocked()) return;
   audio.unlock().catch(()=>{}); run=createRun(seed); screen='play'; input.clear(); input.setEnabled(true); hideOverlay(); clock.reset();
   el('tutorial-banner').hidden=true; el('toast').hidden=true; lastScore=-1; updateHud();
 }
 function tutorialSetup(index:number) {
   run=createRun(12345); run.tutorial=true; run.wavesEnabled=false;
-  run.bullets=[]; run.lasers=[]; run.coins=[]; run.player={x:300,y:238}; run.waveLeft=999999;
+  run.bullets=[]; run.lasers=[]; run.mines=[]; run.coins=[]; run.player={x:300,y:238}; run.waveLeft=999999;
   if(index===0) run.coins=[{id:100,x:405,y:238,risk:false}];
   if(index===1) {
     run.coins=[{id:101,x:440,y:238,risk:true},{id:102,x:475,y:238,risk:true},{id:103,x:510,y:238,risk:true}];
@@ -90,7 +92,7 @@ function tutorialSetup(index:number) {
   if(index===2) { run.player={x:480,y:238}; run.debt=60;run.dueAt=480;run.pending=30; }
 }
 function startTutorial(index=0) {
-  if(isPortrait()) return;
+  if(orientationBlocked()) return;
   audio.unlock().catch(()=>{}); tutorialStep=index; tutorialSetup(index); screen='tutorial';
   input.clear();input.setEnabled(true);hideOverlay();clock.reset(); tutorialBanner();lastScore=-1;updateHud();
 }
@@ -118,7 +120,7 @@ function pause(reason:string) {
   updateHud();
 }
 function resume() {
-  if(isPortrait()||screen!=='pause'||!run.alive) return;
+  if(orientationBlocked()||screen!=='pause'||!run.alive) return;
   audio.unlock().catch(()=>{});
   screen='resume';resumeAt=performance.now()+1000;clock.reset();input.clear();
   setOverlay('<div class="resume-count">1</div><p>准备继续</p>',true);
@@ -151,10 +153,15 @@ function applySettings() {
   if(game.isBooted && game.renderer && game.canvas.width!==960*resolution) game.scale.setGameSize(960*resolution,540*resolution);
 }
 function isPortrait() { return matchMedia('(pointer: coarse)').matches && innerHeight>innerWidth; }
+function orientationBlocked() { return isPortrait() && !forceLandscape; }
 function checkOrientation() {
-  const portrait=isPortrait();el('orientation').hidden=!portrait;
-  panel.inert=portrait;
-  if(portrait && (playing()||screen==='resume')) pause('横屏后继续');
+  const portrait=isPortrait(), blocked=orientationBlocked(), changed=portrait!==lastPortrait;
+  lastPortrait=portrait;
+  document.body.classList.toggle('forced-landscape',portrait&&forceLandscape);
+  el('orientation').hidden=!blocked;
+  panel.inert=blocked;
+  if((blocked||changed) && (playing()||screen==='resume')) pause('调整握持后继续');
+  if(game.isBooted && game.canvas) game.scale.refresh();
   updateHud();
 }
 function updateHud() {
@@ -166,22 +173,27 @@ function updateHud() {
   el('deadline').textContent=run.mode==='repay'?'危险加速 ×2，活着兑现':run.debt>0?'最迟 '+(latestRepayIn(run)/HZ).toFixed(1)+' 秒后开始还债':'随时可以借一秒';
   el('cabinet').dataset.mode=run.mode;
   el('cabinet').classList.toggle('not-playing',!playing());
-  for(const id of ['hud','controls','tutorial-banner']) el(id).inert=!playing()||run.paused||isPortrait();
+  for(const id of ['hud','controls','tutorial-banner']) el(id).inert=!playing()||run.paused||orientationBlocked();
   el('header-best').textContent=String(saves.data.best?.score??0).padStart(5,'0');
   const reason=borrowBlockReason(run);
   borrowButton.disabled=!playing()||!!reason;repayButton.disabled=!playing()||!canRepay(run);
   el('borrow-hint').textContent=reason||'空格';
   el('repay-hint').textContent=run.mode==='repay'?'不可中断':run.debt>0?'E · 全部偿还':'暂无欠债';
-  el('wave-label').textContent='第 '+run.wave+' 波 / '+(PATTERNS.find(p=>p.id===run.patternId)?.name??'练习');
+  const pattern = PATTERNS.find(p=>p.id===run.patternId);
+  el('wave-label').textContent='第 '+run.wave+' 波 / '+(pattern?.name??'练习');
+  el('pattern-hint').textContent=run.tutorial?'':pattern?.kind==='mines'?'借时触碰菱形拆弹 · 每枚暂存 +30':pattern?.kind==='gates'?'封锁消失后，立刻换到下一条空白带':'虚线预警 · 实线危险';
   el('world-label').textContent=formatTime(run.tick);
   el('debug').hidden=!debugEnabled;
-  if(debugEnabled) el('debug').textContent='seed '+run.seed+' | tick '+run.tick+' | world '+run.worldTick+' | debt '+run.debt+' | '+lastDelta.toFixed(1)+'ms | entities '+(run.bullets.length+run.lasers.length);
+  if(debugEnabled) el('debug').textContent='seed '+run.seed+' | tick '+run.tick+' | world '+run.worldTick+' | debt '+run.debt+' | '+lastDelta.toFixed(1)+'ms | entities '+(run.bullets.length+run.lasers.length+run.mines.length);
 }
 function handleStep(frameInput:InputFrame) {
   step(run,frameInput);
   for(const event of run.events) {
     audio.play(event);
+    if(event.type==='wave'&&run.patternId==='minefield') toast('借时触碰核心拆弹，清债后每枚 +60',2200);
+    if(event.type==='wave'&&run.patternId==='shutters') toast('进入蓝边通道，等封锁消失再换轨',2200);
     if(event.type==='settle'&&event.value) { scene.celebrate();toast('成功兑现 +'+event.value+' 分'); }
+    if(event.type==='disarm'&&event.value) { scene.celebrate();toast('拆弹成功！暂存 +'+event.value+'，还清后翻倍'); }
     if(event.type==='repay'&&event.automatic) toast('到期了，自动开始还债',1100);
   }
   if(!run.alive) {
@@ -217,6 +229,7 @@ app.addEventListener('click',e=>{
   const action=target.dataset.action;
   if((target as HTMLButtonElement).disabled)return;
   audio.unlock().catch(()=>{});
+  if(action==='landscape'){forceLandscape=true;input.clear();checkOrientation();}
   if(action==='start')start();
   if(action==='new-run'&&(screen!=='result'||performance.now()>=unlockAt))startRun();
   if(action==='same-run'&&performance.now()>=unlockAt)startRun(run.seed);
@@ -247,7 +260,8 @@ if(import.meta.env.DEV && params.has('test')) {
     snapshot:()=>structuredClone(run), screen:()=>screen, start:(seed=42)=>startRun(seed), pause:()=>pause('测试暂停'),
     patch:(v:Partial<RunSnapshot>)=>{Object.assign(run,v);updateHud();},
     advance:(count:number,frameInput:InputFrame={x:0,y:0})=>{for(let i=0;i<count&&playing();i++)handleStep(i===0?frameInput:{x:frameInput.x,y:frameInput.y});updateHud();},
-    tutorial:()=>startTutorial(), diagnostics:()=>({entities:run.bullets.length+run.lasers.length+run.coins.length,scenes:game.scene.scenes.length,canvas:document.querySelectorAll('canvas').length,recent:saves.data.recent.length,renderer:game.renderer.type,frameMs:lastDelta,canvasWidth:game.canvas.width}),
+    wave:(id:string)=>{spawnWave(run,id);updateHud();},
+    tutorial:()=>startTutorial(), diagnostics:()=>({entities:run.bullets.length+run.lasers.length+run.mines.length+run.coins.length,scenes:game.scene.scenes.length,canvas:document.querySelectorAll('canvas').length,recent:saves.data.recent.length,renderer:game.renderer.type,frameMs:lastDelta,canvasWidth:game.canvas.width}),
   }});
 }
 showMenu();checkOrientation();refreshStorageNote();

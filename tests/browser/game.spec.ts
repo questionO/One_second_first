@@ -3,7 +3,7 @@ const pageErrors=new WeakMap<Page,string[]>();
 test.beforeEach(async({page})=>{const errors:string[]=[];pageErrors.set(page,errors);page.on('pageerror',e=>errors.push(e.message));});
 test.afterEach(async({page})=>expect(pageErrors.get(page)).toEqual([]));
 async function boot(page:Page) { await page.goto('/?test=1');await page.waitForFunction(()=>!!(window as any).__game); }
-async function cleanRun(page:Page,seed=42) { await page.evaluate(seed=>{const g=(window as any).__game;g.start(seed);g.patch({wavesEnabled:false,bullets:[],lasers:[],coins:[]});},seed); }
+async function cleanRun(page:Page,seed=42) { await page.evaluate(seed=>{const g=(window as any).__game;g.start(seed);g.patch({wavesEnabled:false,bullets:[],lasers:[],mines:[],coins:[]});},seed); }
 test('首页、实际 Phaser 画布与开始教学',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await boot(page);await expect(page.getByRole('heading',{name:'先欠一秒',exact:true})).toBeVisible();
@@ -68,6 +68,59 @@ test('桌面战斗与设置视觉截图',async({page})=>{
  await page.getByRole('button',{name:'声音与显示',exact:true}).first().click();
  await page.screenshot({path:'test-results/settings-desktop.png',fullPage:true});
 });
+test('奔跑小人移动时换姿势，暂停保持画面，重开恢复站姿',async({page})=>{
+ await boot(page);await cleanRun(page);
+ const snapshot=async(path?:string)=>{
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  const canvas=(await page.locator('canvas').boundingBox())!, scale=canvas.width/960;
+  return page.screenshot({path,clip:{x:canvas.x+455*scale,y:canvas.y+213*scale,width:50*scale,height:50*scale}});
+ };
+ await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+ const idle=await snapshot('test-results/runner-idle.png');
+ await page.evaluate(()=>(window as any).__game.patch({paused:false}));
+ await page.keyboard.down('KeyD');await page.waitForTimeout(180);await page.keyboard.up('KeyD');
+ expect(await page.evaluate(()=>(window as any).__game.snapshot().player.x)).toBeGreaterThan(500);
+ await page.evaluate(()=>(window as any).__game.patch({paused:true,player:{x:480,y:238}}));
+ const running=await snapshot('test-results/runner-running.png');
+ expect(running.equals(idle)).toBe(false);
+ await page.waitForTimeout(150);expect((await snapshot()).equals(running)).toBe(true);
+ await cleanRun(page);await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+ expect((await snapshot()).equals(idle)).toBe(true);
+});
+test('拆弹提示、真实键盘冻结拆弹、还债兑现',async({page})=>{
+ await boot(page);
+ await page.evaluate(()=>{const g=(window as any).__game;g.start(42);g.patch({tick:359,worldTick:359,waveLeft:1});g.advance(1);g.patch({wavesEnabled:false});});
+ await expect(page.locator('#pattern-hint')).toContainText('借时触碰菱形拆弹');
+ await expect(page.locator('#toast')).toContainText('清债后每枚 +60');
+ await page.screenshot({path:'test-results/minefield-desktop.png',fullPage:true});
+ await page.keyboard.press('Space');
+ await expect(page.locator('#toast')).toContainText('拆弹成功');
+ const frozen=await page.evaluate(()=>(window as any).__game.snapshot());
+ expect(frozen.mines).toHaveLength(2);expect(frozen.pending).toBeGreaterThanOrEqual(30);
+ await expect(page.locator('#repay-button')).toBeEnabled();
+ await page.keyboard.press('KeyE');
+ await expect(page.locator('#debt-number')).toHaveText('0.0 秒');
+ const settled=await page.evaluate(()=>(window as any).__game.snapshot());
+ expect(settled.score).toBe(frozen.score+frozen.pending*2);expect(settled.alive).toBe(true);
+});
+test('换轨封锁的两段画面及低画质渲染',async({page})=>{
+ await boot(page);
+ await page.evaluate(()=>{const g=(window as any).__game;g.start(42);g.wave('shutters');g.patch({paused:true,wavesEnabled:false});});
+ await expect(page.locator('#pattern-hint')).toContainText('立刻换到下一条空白带');
+ await page.screenshot({path:'test-results/shutters-warning.png',fullPage:true});
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(14,{x:0,y:1});g.advance(95);g.patch({paused:true});});
+ expect(await page.evaluate(()=>(window as any).__game.snapshot().alive)).toBe(true);
+ await page.screenshot({path:'test-results/shutters-active.png',fullPage:true});
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(29);g.patch({paused:true});});
+ await page.screenshot({path:'test-results/shutters-next.png',fullPage:true});
+ await page.evaluate(()=>(window as any).__game.pause());
+ await page.getByRole('button',{name:'声音与显示',exact:true}).first().click();
+ await page.locator('#lowQuality').check();await page.locator('#reducedMotion').check();
+ await page.getByRole('button',{name:'保存并返回'}).click();
+ await page.evaluate(()=>{const g=(window as any).__game;g.start(42);g.wave('minefield');g.patch({paused:true});});
+ await page.screenshot({path:'test-results/minefield-low-quality.png',fullPage:true});
+ expect(await page.evaluate(()=>(window as any).__game.diagnostics().canvasWidth)).toBe(720);
+});
 test.describe('手机横屏',()=>{
  test.use({viewport:{width:844,height:390},hasTouch:true,isMobile:true,deviceScaleFactor:1});
  test('按钮尺寸、双指输入与旋转暂停',async({page})=>{
@@ -99,5 +152,94 @@ test.describe('手机横屏',()=>{
   await page.screenshot({path:'test-results/home-minimum.png',fullPage:true});
   await cleanRun(page);
   for(const id of ['joystick','borrow-button','repay-button']){const box=(await page.locator('#'+id).boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y+box.height).toBeLessThanOrEqual(360);expect(box.height).toBeGreaterThanOrEqual(48);}
+ });
+ test('新机关提示在最小横屏不遮挡操作区',async({page})=>{
+  await page.setViewportSize({width:640,height:360});await boot(page);
+  for(const id of ['minefield','shutters']) {
+   await page.evaluate(id=>{const g=(window as any).__game;g.start(42);g.wave(id);g.patch({paused:true});},id);
+   const hint=(await page.locator('#pattern-hint').boundingBox())!, wave=(await page.locator('#wave-label').boundingBox())!, clock=(await page.locator('#world-label').boundingBox())!;
+   expect(hint.x).toBeGreaterThanOrEqual(wave.x+wave.width);
+   expect(hint.x+hint.width).toBeLessThanOrEqual(clock.x);
+   expect(hint.y+hint.height).toBeLessThanOrEqual((await page.locator('#borrow-button').boundingBox())!.y);
+   await page.screenshot({path:'test-results/'+id+'-mobile.png',fullPage:true});
+  }
+ });
+});
+test.describe('浏览器锁定竖屏时的横屏试玩',()=>{
+ test.use({viewport:{width:390,height:844},hasTouch:true,isMobile:true,deviceScaleFactor:1});
+ async function rotatePage(page:Page) {
+  await boot(page);
+  await page.getByRole('button',{name:'直接横屏试玩'}).tap();
+  await expect(page.locator('#orientation')).toBeHidden();
+  await expect(page.locator('body')).toHaveClass(/forced-landscape/);
+ }
+ test('不依赖系统旋转即可开始教学，双指操作和摇杆两个轴方向正确',async({page})=>{
+  await rotatePage(page);
+  expect(await page.evaluate(()=>innerHeight>innerWidth)).toBe(true);
+  await page.screenshot({path:'test-results/forced-landscape-home.png',fullPage:true});
+  await page.getByRole('button',{name:'开始挑战'}).tap();
+  await expect(page.locator('#tutorial-banner')).toContainText('先动起来');
+  await page.getByRole('button',{name:'跳过教学'}).tap();
+  await cleanRun(page);
+  const joystick=(await page.locator('#joystick').boundingBox())!, borrow=(await page.locator('#borrow-button').boundingBox())!;
+  const cdp=await page.context().newCDPSession(page);
+  const start={x:joystick.x+joystick.width/2,y:joystick.y+joystick.height/2,id:1};
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[start]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...start,y:start.y+25}]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...start,y:start.y+25},{x:borrow.x+borrow.width/2,y:borrow.y+borrow.height/2,id:2}]});
+  await page.waitForTimeout(200);
+  const moved=await page.evaluate(()=>(window as any).__game.snapshot());
+  expect(moved.player.x).toBeGreaterThan(490);expect(moved.player.y).toBeCloseTo(238);expect(moved.mode).toBe('borrow');
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+  for (const [dx,dy,axis,sign] of [[-25,0,'y',1],[25,0,'y',-1],[0,-25,'x',-1]] as const) {
+   await page.evaluate(()=>(window as any).__game.patch({player:{x:480,y:238}}));
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[start]});
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...start,x:start.x+dx,y:start.y+dy}]});
+   await page.waitForTimeout(120);
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+   const p=await page.evaluate(()=>(window as any).__game.snapshot().player);
+   expect((p[axis]-(axis==='x'?480:238))*sign).toBeGreaterThan(10);
+   expect(p[axis==='x'?'y':'x']).toBeCloseTo(axis==='x'?238:480);
+  }
+  await page.screenshot({path:'test-results/forced-landscape-game.png',fullPage:true});
+ });
+ test('小屏与画质切换后画布仍铺满，按钮在屏幕内',async({page})=>{
+  await rotatePage(page);
+  await page.getByRole('button',{name:'设置',exact:true}).tap();
+  await page.locator('#lowQuality').check();
+  await page.getByRole('button',{name:'保存并返回'}).tap();
+  await cleanRun(page);
+  for (const [width,height] of [[320,568],[360,780],[390,844]]) {
+   await page.setViewportSize({width,height});
+   await expect.poll(()=>page.locator('canvas').boundingBox().then(b=>Math.round(b!.width))).toBe(width);
+   const cabinet=(await page.locator('#cabinet').boundingBox())!, canvas=(await page.locator('canvas').boundingBox())!;
+   expect(canvas.height).toBeCloseTo(cabinet.height,0);expect(canvas.x).toBeCloseTo(cabinet.x,0);expect(canvas.y).toBeCloseTo(cabinet.y,0);
+   for(const id of ['joystick','borrow-button','repay-button','pause-button']) {
+    const box=(await page.locator('#'+id).boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(height);
+    expect(box.width).toBeGreaterThanOrEqual(48);expect(box.height).toBeGreaterThanOrEqual(48);
+   }
+   await page.screenshot({path:'test-results/forced-landscape-'+width+'.png',fullPage:true});
+  }
+  expect(await page.evaluate(()=>(window as any).__game.diagnostics().canvasWidth)).toBe(720);
+ });
+ test('原生方向变化仍暂停，恢复后不丢失局面，地址栏缩放不额外暂停',async({page})=>{
+  await rotatePage(page);await cleanRun(page,123);
+  await page.setViewportSize({width:390,height:780});
+  expect(await page.evaluate(()=>(window as any).__game.screen())).toBe('play');
+  await page.setViewportSize({width:844,height:390});
+  await expect(page.locator('body')).not.toHaveClass(/forced-landscape/);
+  await expect(page.getByRole('heading',{name:'调整握持后继续'})).toBeVisible();
+  await page.getByRole('button',{name:'继续挑战'}).tap();
+  await expect(page.locator('#overlay')).toBeHidden();
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.locator('body')).toHaveClass(/forced-landscape/);
+  await expect(page.locator('#orientation')).toBeHidden();
+  const paused=await page.evaluate(()=>(window as any).__game.snapshot());
+  expect(paused.seed).toBe(123);expect(paused.paused).toBe(true);
+  await page.getByRole('button',{name:'继续挑战'}).tap();
+  await expect(page.locator('#overlay')).toBeHidden();
+  expect(await page.evaluate(()=>(window as any).__game.screen())).toBe('play');
  });
 });

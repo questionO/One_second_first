@@ -7,7 +7,7 @@ export class InputController {
   private vector = { x: 0, y: 0 };
   private enabled = false;
   private cleanup = new AbortController();
-  constructor(private joystick: HTMLElement, private thumb: HTMLElement, borrowButton: HTMLButtonElement, repayButton: HTMLButtonElement, private pause: () => void, private enter: () => void) {
+  constructor(private joystick: HTMLElement, private thumb: HTMLElement, borrowButton: HTMLButtonElement, repayButton: HTMLButtonElement, private pause: () => void, private enter: () => void, private rotated: () => boolean) {
     const signal = this.cleanup.signal;
     window.addEventListener('keydown', e => {
       if (e.target instanceof HTMLInputElement) return;
@@ -40,7 +40,9 @@ export class InputController {
   }
   private move(e: PointerEvent) {
     const r = this.joystick.getBoundingClientRect(), radius = r.width * 0.33;
-    let x = (e.clientX - r.left - r.width / 2) / radius, y = (e.clientY - r.top - r.height / 2) / radius;
+    const horizontal = (e.clientX - r.left - r.width / 2) / radius, vertical = (e.clientY - r.top - r.height / 2) / radius;
+    // Undo the page's clockwise rotation so the stick follows the visible arena axes.
+    let x = this.rotated() ? vertical : horizontal, y = this.rotated() ? -horizontal : vertical;
     const l = Math.hypot(x,y); if (l > 1) { x /= l; y /= l; }
     this.vector = l < 0.12 ? {x:0,y:0} : {x,y};
     this.thumb.style.transform = 'translate(' + (x * radius) + 'px,' + (y * radius) + 'px)';

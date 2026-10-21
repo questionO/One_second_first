@@ -8,7 +8,7 @@ export function createRun(seed: number, rulesVersion = RULES_VERSION): RunSnapsh
   const s: RunSnapshot = {
     seed: seed >>> 0, rng: (seed >>> 0) || 0x6d2b79f5, rulesVersion, tick: 0, worldTick: 0,
     mode: 'normal', debt: 0, dueAt: null, borrowLeft: 0, score: 0, pending: 0,
-    player: { x: 480, y: 238 }, alive: true, paused: false, bullets: [], lasers: [], coins: [],
+    player: { x: 480, y: 238 }, alive: true, paused: false, bullets: [], lasers: [], mines: [], coins: [],
     nextId: 1, wave: 0, waveLeft: 0, patternId: '', safeY: 238,
     borrowCount: 0, settlements: 0, events: [], deathReason: '', deathAt: null, summary: null,
     tutorial: false, wavesEnabled: true,
@@ -51,6 +51,7 @@ export function step(s: RunSnapshot, input: InputFrame = EMPTY_INPUT): void {
   const dx = x * scale * RULES.playerSpeed / HZ / divisions;
   const dy = y * scale * RULES.playerSpeed / HZ / divisions;
   const picked = new Set<number>();
+  const disarmed = new Set<number>();
   s.tick++;
   if (mode === 'borrow') { s.debt++; s.borrowLeft--; }
   if (mode === 'repay') s.debt = Math.max(0, s.debt - 1);
@@ -66,11 +67,20 @@ export function step(s: RunSnapshot, input: InputFrame = EMPTY_INPUT): void {
       }
     }
     for (const laser of s.lasers) {
+      if (laser.delay && laser.delay > 0) { if (worldSteps > 0) laser.delay--; continue; }
       // The final warning interval is harmless; the next interval starts the beam.
       const wasActive = laser.warn <= 0 && laser.active > 0;
       if (worldSteps > 0) { if (laser.warn > 0) laser.warn--; else if (laser.active > 0) laser.active--; }
       if (wasActive && sweptRect(old, s.player, laser.x, laser.y, laser.width, laser.height, r)) {
-        die(s, mode === 'borrow' ? '碰到了仍在发射的冻结激光' : '被激光切中', s.player); return;
+        die(s, laser.gate ? '没能及时换到下一条安全带' : mode === 'borrow' ? '碰到了仍在发射的冻结激光' : '被激光切中', s.player); return;
+      }
+    }
+    for (const mine of s.mines) {
+      const wasActive = mine.warn <= 0 && mine.active > 0;
+      if (mode === 'borrow' && mine.warn > 0 && sweptCircle(old, s.player, mine, mine, r + RULES.mineCoreRadius)) disarmed.add(mine.id);
+      if (worldSteps > 0) { if (mine.warn > 0) mine.warn--; else if (mine.active > 0) mine.active--; }
+      if (wasActive && sweptCircle(old, s.player, mine, mine, r + mine.radius)) {
+        die(s, mode === 'borrow' ? '闯入了冻结中的爆炸区域' : '被定时爆雷波及', mine); return;
       }
     }
     for (const coin of s.coins) if (sweptCircle(old, s.player, coin, coin, r + 9)) picked.add(coin.id);
@@ -80,12 +90,17 @@ export function step(s: RunSnapshot, input: InputFrame = EMPTY_INPUT): void {
     }
   }
   // Defer pickups and settlement until all collision substeps have passed.
+  if (disarmed.size > 0) {
+    const reward = disarmed.size * RULES.disarmValue;
+    s.pending += reward; s.events.push({ type: 'disarm', value: reward });
+  }
   if (picked.size > 0) {
     if (mode === 'borrow') s.pending += picked.size * RULES.coinValue; else s.score += picked.size * RULES.coinValue;
     s.coins = s.coins.filter(c => !picked.has(c.id)); s.events.push({ type: 'coin', value: picked.size });
   }
   s.bullets = s.bullets.filter(b => b.x > -180 && b.x < 1140 && b.y > -180 && b.y < 720);
   s.lasers = s.lasers.filter(l => l.warn > 0 || l.active > 0);
+  s.mines = s.mines.filter(m => !disarmed.has(m.id) && (m.warn > 0 || m.active > 0));
   if (mode === 'borrow' && s.borrowLeft === 0) s.mode = 'normal';
   if (mode === 'repay' && s.debt === 0) {
     const earned = s.pending * 2;

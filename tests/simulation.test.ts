@@ -7,7 +7,7 @@ import { FixedClock } from '../src/game/clock';
 import { sweptCircle,sweptRect } from '../src/game/collision';
 import type { InputFrame,RunSnapshot } from '../src/game/types';
 
-function empty() { const s=createRun(42);s.wavesEnabled=false;s.bullets=[];s.lasers=[];s.coins=[];return s; }
+function empty() { const s=createRun(42);s.wavesEnabled=false;s.bullets=[];s.lasers=[];s.mines=[];s.coins=[];return s; }
 function ticks(s:RunSnapshot,n:number,input:InputFrame={x:0,y:0}) { for(let i=0;i<n;i++)step(s,i===0?input:{x:input.x,y:input.y}); }
 describe('时间借贷与收益',()=>{
  it('零收益还清不计为成功兑现',()=>{const s=empty();ticks(s,60,{x:0,y:0,borrow:true});ticks(s,60,{x:0,y:0,repay:true});expect(s.debt).toBe(0);expect(s.settlements).toBe(0);expect(s.score).toBe(0);});
@@ -97,7 +97,7 @@ describe('帧率与确定性',()=>{
  it('中断不补算，恢复不保留积压',()=>{const c=new FixedClock();let n=0;c.advance(10,()=>n++);expect(c.advance(300,()=>n++)).toBe(false);c.advance(10,()=>n++);expect(n).toBe(0);});
  it('相同种子和输入可复现波次',()=>{const a=createRun(99),b=createRun(99);for(let i=0;i<12000;i++){const input={x:0,y:0};step(a,input);step(b,input);}expect(a).toEqual(b);});
 });
-describe.each(PATTERNS)('$name 的安全路线与换波',p=>{
+describe.each(PATTERNS.filter(p=>p.kind!=='mines'&&p.kind!=='gates'))('$name 的传统安全带路线',p=>{
  it.each([false,true])('安全带横穿路线，加速=%s',accelerated=>{
   const s=empty();s.worldTick=120*HZ;spawnWave(s,p.id);
   const duration=s.waveLeft;
@@ -109,8 +109,8 @@ describe.each(PATTERNS)('$name 的安全路线与换波',p=>{
   }
   expect(s.score).toBeGreaterThan(0);
  });
- it('波次切换清理旧实体，保留新波六枚金币',()=>{
-  const s=empty();s.worldTick=120*HZ;spawnWave(s,p.id);const ids=new Set([...s.bullets,...s.lasers,...s.coins].map(e=>e.id));
-  spawnWave(s);expect([...s.bullets,...s.lasers,...s.coins].every(e=>!ids.has(e.id))).toBe(true);expect(s.coins).toHaveLength(6);
- });
+});
+it.each(PATTERNS)('$name 换波清理所有旧机关，保留新波六枚金币',p=>{
+ const s=empty();s.worldTick=120*HZ;spawnWave(s,p.id);const ids=new Set([...s.bullets,...s.lasers,...s.mines,...s.coins].map(e=>e.id));
+ spawnWave(s);expect([...s.bullets,...s.lasers,...s.mines,...s.coins].every(e=>!ids.has(e.id))).toBe(true);expect(s.coins).toHaveLength(6);
 });

@@ -10,6 +10,8 @@ export const PATTERNS: Pattern[] = [
   { id: 'cross-laser', name: '双重催款', kind: 'combo', variant: 0, safeRoute: '先拿通道内金币，预警后向上错开横线，留在弹列间隙内' },
   { id: 'fan-laser', name: '时间夹缝', kind: 'combo', variant: 1, safeRoute: '预警后向上错开横线，保持在扇面之间的通道内' },
   { id: 'double-cross', name: '最后通牒', kind: 'combo', variant: 2, safeRoute: '保持在安全带中央，穿行时留意双向弹列' },
+  { id: 'minefield', name: '冻结拆弹', kind: 'mines', variant: 0, safeRoute: '离开爆炸圆圈，或借时后触碰菱形核心拆弹，每枚暂存 30 分' },
+  { id: 'shutters', name: '换轨封锁', kind: 'gates', variant: 0, safeRoute: '先进入空白安全带，等第一段封锁消失后，立即换到下一条安全带' },
 ];
 export function random(state: RunSnapshot): number {
   let x = state.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
@@ -17,15 +19,19 @@ export function random(state: RunSnapshot): number {
 }
 export function spawnWave(s: RunSnapshot, forced?: string): void {
   const d = difficulty(s.worldTick);
-  const pool = PATTERNS.slice(0, d.stage === 0 ? 2 : d.stage === 1 ? 4 : 9);
-  let p = forced ? PATTERNS.find(p => p.id === forced)! : pool[Math.floor(random(s) * pool.length)];
+  let pool = d.stage === 0 ? PATTERNS.slice(0, 2) : d.stage === 1 ? [...PATTERNS.slice(0, 4), ...PATTERNS.slice(9)] : PATTERNS;
+  // Introduce both mechanics early, then keep an interaction wave at least every other wave.
+  if (d.stage > 0 && s.wave % 2 === 1) pool = PATTERNS.slice(9);
+  const introduction = s.wave === 1 ? 'minefield' : s.wave === 2 ? 'shutters' : undefined;
+  const chosen = forced ?? introduction;
+  let p = chosen ? PATTERNS.find(p => p.id === chosen)! : pool[Math.floor(random(s) * pool.length)];
   if (!p) throw new Error('Unknown pattern: ' + forced);
-  if (!forced && p.id === s.patternId) p = pool[(pool.indexOf(p) + 1) % pool.length];
+  if (!chosen && p.id === s.patternId) p = pool[(pool.indexOf(p) + 1) % pool.length];
   const mirror = random(s) < 0.5;
   // Anchor to the current row before any telegraph appears. No tracking after this point.
   s.safeY = Math.max(140, Math.min(336, s.player.y));
   const gap = 51, f = RULES.field;
-  s.bullets = []; s.lasers = []; s.coins = [];
+  s.bullets = []; s.lasers = []; s.mines = []; s.coins = [];
   s.wave++; s.patternId = p.id; s.waveLeft = d.duration;
   const addRows = (right: boolean) => {
     for (let y = f.top + 8; y < f.bottom; y += 30) {
@@ -64,11 +70,31 @@ export function spawnWave(s: RunSnapshot, forced?: string): void {
     if (p.variant === 1) addFan(right); else addRows(right);
     if (p.variant === 2) addRows(!right); else addLasers();
   }
-  s.bullets = s.bullets.slice(0, RULES.maxHazards - s.lasers.length);
+  if (p.kind === 'mines') {
+    const direction = s.player.x < 480 ? 1 : -1;
+    const origin = Math.max(128, Math.min(832, s.player.x));
+    const y = Math.max(176, Math.min(300, s.player.y));
+    for (let i = 0; i < 3; i++) s.mines.push({ id: s.nextId++, x: origin + direction * i * 170, y,
+      radius: RULES.mineRadius, warn: RULES.mineWarn + i * 42, active: RULES.mineActive });
+  }
+  if (p.kind === 'gates') {
+    const firstY = s.player.y < 238 ? 188 : 288;
+    s.safeY = firstY;
+    for (let phase = 0; phase < 2; phase++) {
+      const y = phase === 0 ? firstY : 476 - firstY;
+      for (const [top, bottom] of [[f.top, y - RULES.gateGap], [y + RULES.gateGap, f.bottom]]) {
+        s.lasers.push({ id: s.nextId++, x: f.left, y: top, width: f.right - f.left, height: bottom - top,
+          delay: phase * (RULES.gateWarn + RULES.gateActive), warn: RULES.gateWarn, active: RULES.gateActive, gate: true });
+      }
+    }
+  }
+  s.bullets = s.bullets.slice(0, RULES.maxHazards - s.lasers.length - s.mines.length);
   // Safe coins lead horizontally; risky coins tempt a departure from the safe band.
   const near = Math.max(130, Math.min(760, s.player.x + (mirror ? -100 : 70)));
   for (let i = 0; i < 3; i++) s.coins.push({ id: s.nextId++, x: Math.min(850, near + i * 42), y: s.safeY, risk: false });
   const riskyY = s.safeY < 238 ? Math.min(f.bottom - 20, s.safeY + 84) : Math.max(f.top + 20, s.safeY - 84);
   for (let i = 0; i < 3; i++) s.coins.push({ id: s.nextId++, x: 350 + i * 72 + (mirror ? 100 : 0), y: riskyY, risk: true });
+  if (p.kind === 'mines') s.mines.forEach((mine, i) => { s.coins[i + 3].x = mine.x; s.coins[i + 3].y = mine.y; });
+  if (p.kind === 'gates') for (let i = 3; i < 6; i++) { s.coins[i].x = s.coins[i - 3].x; s.coins[i].y = 476 - s.safeY; }
   s.events.push({ type: 'wave' });
 }

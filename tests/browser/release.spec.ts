@@ -9,6 +9,6 @@ test('生产构建可启动并移除开发诊断接口',async({page})=>{
  await page.getByRole('button',{name:'跳过教学'}).click();
  await expect(page.locator('#borrow-button')).toBeEnabled();
  await page.keyboard.press('Space');await expect(page.locator('#mode-label')).toContainText('冻结');
- await page.screenshot({path:'docs/verification/release.png',fullPage:true});
+ await page.screenshot({path:'release-results/release.png',fullPage:true});
  expect(errors).toEqual([]);
 });
