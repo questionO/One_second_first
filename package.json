@@ -1,0 +1,30 @@
+{
+  "name": "one-second-first",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "verify": "npm run test && npm run build && npm run test:browser && npm run test:release",
+    "test:release": "playwright test --config playwright.release.config.ts",
+    "test:soak": "playwright test --config playwright.soak.config.ts",
+    "postbuild": "node docs/build-notices.mjs"
+  },
+  "dependencies": {
+    "phaser": "4.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}
