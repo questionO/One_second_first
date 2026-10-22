@@ -10,7 +10,7 @@ export class ArenaScene extends Phaser.Scene {
   private burstX = 0;
   private burstY = 0;
   private lastTime = 0;
-  private runner = { run: null as RunSnapshot | null, tick: 0, x: 0, y: 0, phase: 0, facing: 1, moving: false };
+  private runner = { run: null as RunSnapshot | null, tick: 0, x: 0, y: 0, phase: 0, facing: 'right' as 'left' | 'right' | 'up' | 'down', moving: false };
   constructor(private read: () => RunSnapshot, private settings: () => Settings, private frame: (delta:number) => void, private debug: () => boolean) { super('arena'); }
   create() { this.pen = this.add.graphics(); this.effects = this.add.graphics();
     const resolution=this.settings().lowQuality?0.75:1; this.scale.setGameSize(960*resolution,540*resolution); }
@@ -121,21 +121,28 @@ export class ArenaScene extends Phaser.Scene {
   }
   private drawRunner(s:RunSnapshot, settings:Settings) {
     const g=this.pen, p=s.player, runner=this.runner;
-    if(runner.run!==s) Object.assign(runner,{run:s,tick:s.tick,x:p.x,y:p.y,phase:0,facing:1,moving:false});
+    if(runner.run!==s) Object.assign(runner,{run:s,tick:s.tick,x:p.x,y:p.y,phase:0,facing:'right',moving:false});
     if(runner.tick!==s.tick) {
       if(s.alive&&!s.paused) {
-        const dx=p.x-runner.x, distance=Math.hypot(dx,p.y-runner.y);
+        const dx=p.x-runner.x, dy=p.y-runner.y, distance=Math.hypot(dx,dy);
         runner.moving=distance>0.01;
         // Use player travel, so borrowing and repayment never change the running speed.
-        if(runner.moving) { runner.phase=(runner.phase+distance*0.16)%(Math.PI*2); if(Math.abs(dx)>0.01)runner.facing=Math.sign(dx); }
+        if(runner.moving) {
+          runner.phase=(runner.phase+distance*0.16)%(Math.PI*2);
+          // Keep the current axis near a diagonal so small joystick changes do not flicker the pose.
+          const wasVertical=runner.facing==='up'||runner.facing==='down';
+          const vertical=Math.abs(dy)>Math.abs(dx)*(wasVertical?0.9:1.1);
+          runner.facing=vertical?(dy<0?'up':'down'):(dx<0?'left':'right');
+        }
       }
       runner.tick=s.tick;
     }
     runner.x=p.x;runner.y=p.y;
     const stride=runner.moving?(settings.reducedMotion?0.6:Math.sin(runner.phase)):0;
     const bob=runner.moving&&!settings.reducedMotion?-Math.abs(Math.cos(runner.phase))*1.2:0;
-    const face=runner.facing, lean=runner.moving?2:0;
+    const face=runner.facing==='left'?-1:1, lean=runner.moving?2:0;
     const ink=s.alive?C.ink:C.red, shirt=s.alive?C.blue:C.red;
+    const scarf=s.alive?(s.mode==='repay'?C.red:C.gold):C.red;
     const limb=(points:number[][],color:number,width=3.5)=>{
       g.lineStyle(width,color,1);g.beginPath();
       points.forEach(([x,y],i)=>{ if(i===0)g.moveTo(p.x+face*x,p.y+y+bob);else g.lineTo(p.x+face*x,p.y+y+bob); });g.strokePath();
@@ -143,6 +150,27 @@ export class ArenaScene extends Phaser.Scene {
     };
     g.fillStyle(0x080f25,0.45);g.fillEllipse(p.x,p.y+16,25,6);
     g.fillStyle(shirt,0.08);g.fillCircle(p.x,p.y,22);
+    if(runner.facing==='up'||runner.facing==='down') {
+      const back=runner.facing==='up';
+      for(const side of [-1,1]) {
+        const swing=stride*side, footX=side*(3+Math.abs(stride)), footY=14-swing*3;
+        limb([[side*2,4],[side*3,9-swing*2],[footX,footY]],swing<0?0x557899:ink);
+        limb([[footX,footY],[footX+side*2,footY]],shirt,3);
+        limb([[side*4,-3],[side*7,1+swing*3],[side*7,-1+swing*5]],ink,3);
+      }
+      g.fillStyle(shirt,1);g.fillRoundedRect(p.x-5,p.y-5+bob,10,11,3);
+      if(!back) { g.fillStyle(ink,1);g.fillCircle(p.x,p.y,2); }
+      g.fillStyle(scarf,1);g.fillRoundedRect(p.x-5,p.y-6+bob,10,3,1);
+      if(back) g.fillTriangle(p.x-2,p.y-4+bob,p.x+3+stride*2,p.y+5+bob,p.x+4,p.y-4+bob);
+      else g.fillTriangle(p.x-4,p.y-5+bob,p.x-9-stride*2,p.y-7+bob,p.x-7,p.y+bob);
+      const headY=p.y-11+bob;
+      g.fillStyle(back?0x557899:ink,1);g.fillCircle(p.x,headY,5.5);
+      g.lineStyle(2,shirt,1);g.lineBetween(p.x-4,headY-3,p.x+4,headY-3);
+      if(!back) {
+        g.fillStyle(C.field,1);g.fillCircle(p.x-2,headY,1);g.fillCircle(p.x+2,headY,1);
+      }
+      return;
+    }
     for(const side of [-1,1]) {
       const swing=stride*side, foot=runner.moving?swing*9:side*4;
       const footY=14-(runner.moving?Math.max(0,-swing)*5:0);
@@ -150,7 +178,6 @@ export class ArenaScene extends Phaser.Scene {
       limb([[foot,footY],[foot+3,footY]],side===-1?0x557899:shirt,3);
     }
     limb([[lean,-4],[-2+stride*5,1],[2+stride*7,-2]],0x557899,3);
-    const scarf=s.alive?(s.mode==='repay'?C.red:C.gold):C.red;
     g.fillStyle(scarf,1);g.fillTriangle(p.x+face*lean,p.y-5+bob,p.x-face*(9+stride*2),p.y-8+bob,p.x-face*6,p.y-3+bob);
     g.fillStyle(shirt,1);g.fillRoundedRect(p.x+face*lean-4,p.y-5+bob,8,11,3);
     g.fillStyle(ink,1);g.fillCircle(p.x,p.y,2);

@@ -73,19 +73,63 @@ test('奔跑小人移动时换姿势，暂停保持画面，重开恢复站姿',
  const snapshot=async(path?:string)=>{
   await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
   const canvas=(await page.locator('canvas').boundingBox())!, scale=canvas.width/960;
-  return page.screenshot({path,clip:{x:canvas.x+455*scale,y:canvas.y+213*scale,width:50*scale,height:50*scale}});
+  const picture=await page.screenshot({path,clip:{x:canvas.x+455*scale,y:canvas.y+213*scale,width:50*scale,height:50*scale}});
+  // Let the screenshot's slow software-rendered frame finish while the simulation is paused.
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  return picture;
  };
  await page.evaluate(()=>(window as any).__game.patch({paused:true}));
  const idle=await snapshot('test-results/runner-idle.png');
- await page.evaluate(()=>(window as any).__game.patch({paused:false}));
- await page.keyboard.down('KeyD');await page.waitForTimeout(180);await page.keyboard.up('KeyD');
- expect(await page.evaluate(()=>(window as any).__game.snapshot().player.x)).toBeGreaterThan(500);
+ const tick=await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});return g.snapshot().tick;});
+ await page.waitForFunction(tick=>(window as any).__game.snapshot().tick>tick+3,tick);
+ await page.keyboard.down('KeyD');
+ await page.waitForFunction(()=>(window as any).__game.snapshot().player.x>500);
  await page.evaluate(()=>(window as any).__game.patch({paused:true,player:{x:480,y:238}}));
+ await page.keyboard.up('KeyD');
  const running=await snapshot('test-results/runner-running.png');
  expect(running.equals(idle)).toBe(false);
  await page.waitForTimeout(150);expect((await snapshot()).equals(running)).toBe(true);
  await cleanRun(page);await page.evaluate(()=>(window as any).__game.patch({paused:true}));
  expect((await snapshot()).equals(idle)).toBe(true);
+});
+for(const reducedMotion of [false,true]) test(`小人四向姿势、斜向保持朝向与停步（减少动态效果=${reducedMotion}）`,async({page})=>{
+ await boot(page);
+ if(reducedMotion) {
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.locator('#reducedMotion').check();await page.locator('#lowQuality').check();
+  await page.getByRole('button',{name:'保存并返回'}).click();
+ }
+ const capture=async(name:string)=>{
+  await page.evaluate(()=>(window as any).__game.patch({paused:true,player:{x:480,y:238}}));
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  const canvas=(await page.locator('canvas').boundingBox())!, scale=canvas.width/960;
+  const picture=await page.screenshot({path:`test-results/runner-${name}-${reducedMotion}.png`,clip:{x:canvas.x+455*scale,y:canvas.y+213*scale,width:50*scale,height:50*scale}});
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  return picture;
+ };
+ const settle=async()=>{
+  const tick=await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});return g.snapshot().tick;});
+  await page.waitForFunction(tick=>(window as any).__game.snapshot().tick>tick+3,tick);
+ };
+ const idle:Record<string,Buffer>={};
+ for(const [direction,key,axis,sign] of [['right','KeyD','x',1],['up','KeyW','y',-1],['down','KeyS','y',1],['left','KeyA','x',-1]] as const) {
+  await cleanRun(page);await settle();
+  await page.keyboard.down(key);
+  await page.waitForFunction(({axis,sign})=>((window as any).__game.snapshot().player[axis]-(axis==='x'?480:238))*sign>25,{axis,sign});
+  const running=await capture(`${direction}-run`);await page.keyboard.up(key);
+  await settle();idle[direction]=await capture(`${direction}-idle`);
+  expect(running.equals(idle[direction])).toBe(false);
+  if(direction==='up') {
+   await settle();
+   await page.keyboard.down('KeyW');await page.keyboard.down('KeyD');
+   await page.waitForFunction(()=>{const p=(window as any).__game.snapshot().player;return p.x>490&&p.y<228;});
+   await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+   await page.keyboard.up('KeyW');await page.keyboard.up('KeyD');
+   await settle();expect((await capture('diagonal-idle')).equals(idle.up)).toBe(true);
+  }
+ }
+ const poses=Object.values(idle);
+ for(let i=0;i<poses.length;i++) for(let j=i+1;j<poses.length;j++) expect(poses[i].equals(poses[j])).toBe(false);
 });
 test('拆弹提示、真实键盘冻结拆弹、还债兑现',async({page})=>{
  await boot(page);
