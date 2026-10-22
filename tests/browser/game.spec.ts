@@ -2,7 +2,12 @@ import {test,expect,type Page} from '@playwright/test';
 const pageErrors=new WeakMap<Page,string[]>();
 test.beforeEach(async({page})=>{const errors:string[]=[];pageErrors.set(page,errors);page.on('pageerror',e=>errors.push(e.message));});
 test.afterEach(async({page})=>expect(pageErrors.get(page)).toEqual([]));
-async function boot(page:Page) { await page.goto('/?test=1');await page.waitForFunction(()=>!!(window as any).__game); }
+async function boot(page:Page) {
+ await page.goto('/?test=1');await page.waitForFunction(()=>!!(window as any).__game);
+ await page.locator('canvas').waitFor();
+ // Diagnostic hooks exist before Phaser's first rendered frame; finish renderer startup before playing.
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))));
+}
 async function cleanRun(page:Page,seed=42) { await page.evaluate(seed=>{const g=(window as any).__game;g.start(seed);g.patch({wavesEnabled:false,bullets:[],lasers:[],mines:[],coins:[]});},seed); }
 test('首页、实际 Phaser 画布与开始教学',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
@@ -130,6 +135,42 @@ for(const reducedMotion of [false,true]) test(`小人四向姿势、斜向保持
  }
  const poses=Object.values(idle);
  for(let i=0;i<poses.length;i++) for(let j=i+1;j<poses.length;j++) expect(poses[i].equals(poses[j])).toBe(false);
+});
+for(const reducedMotion of [false,true]) test(`时间视觉反馈跟随冻结、还债、暂停、清债和死亡（减少动态效果=${reducedMotion}）`,async({page})=>{
+ await boot(page);
+ if(reducedMotion) {
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.locator('#reducedMotion').check();await page.locator('#lowQuality').check();
+  await page.getByRole('button',{name:'保存并返回'}).click();
+ }
+ await cleanRun(page);await page.waitForFunction(()=>(window as any).__game.snapshot().tick>3);
+ await page.evaluate(()=>(window as any).__game.patch({bullets:[{id:900,x:720,y:180,vx:-120,vy:0,radius:6},{id:901,x:760,y:300,vx:-120,vy:0,radius:6}]}));
+ await page.keyboard.press('Space');
+ await expect(page.locator('#time-state-label')).toHaveText('时间冻结');
+ await expect(page.locator('#time-rate')).toHaveText('×0');
+ await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+ const frozen=await page.evaluate(()=>(window as any).__game.snapshot());
+ await page.screenshot({path:`test-results/time-freeze-${reducedMotion}.png`,fullPage:true,animations:'disabled'});
+ const picture=await page.locator('canvas').screenshot({animations:'disabled'});
+ await page.waitForTimeout(150);expect((await page.locator('canvas').screenshot({animations:'disabled'})).equals(picture)).toBe(true);
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(6,{x:0,y:1});g.patch({paused:true});});
+ const moved=await page.evaluate(()=>(window as any).__game.snapshot());
+ expect(moved.worldTick).toBe(frozen.worldTick);expect(moved.bullets).toEqual(frozen.bullets);expect(moved.player.y).toBeGreaterThan(frozen.player.y);
+ expect(Number(await page.locator('#time-remaining').textContent())).toBeLessThanOrEqual(frozen.borrowLeft/60);
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(g.snapshot().borrowLeft);g.patch({debt:180,dueAt:g.snapshot().tick+500});g.advance(1,{x:0,y:0,repay:true});g.patch({paused:true});});
+ await expect(page.locator('#time-state-label')).toHaveText('危险加速');await expect(page.locator('#time-rate')).toHaveText('×2');
+ await expect(page.locator('#time-remaining')).toHaveText('3.0');
+ await page.screenshot({path:`test-results/time-repay-${reducedMotion}.png`,fullPage:true,animations:'disabled'});
+ const repaying=await page.locator('canvas').screenshot({animations:'disabled'});
+ await page.waitForTimeout(150);expect((await page.locator('canvas').screenshot({animations:'disabled'})).equals(repaying)).toBe(true);
+ await page.evaluate(()=>(window as any).__game.pause());await expect(page.locator('#time-readout')).toBeHidden();
+ await cleanRun(page);
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({debt:60,dueAt:g.snapshot().tick});g.advance(1);g.patch({paused:true});});
+ await expect(page.locator('#time-state-label')).toHaveText('危险加速');
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(60);g.patch({paused:true});});
+ await expect(page.locator('#time-readout')).toBeHidden();await expect(page.locator('#time-veil')).toBeHidden();
+ await cleanRun(page);await page.evaluate(()=>{const g=(window as any).__game;g.patch({bullets:[{id:999,...g.snapshot().player,vx:0,vy:0,radius:6}]});g.advance(1,{x:0,y:0,borrow:true});});
+ await expect(page.locator('#time-readout')).toBeHidden();await expect(page.locator('#time-veil')).toBeHidden();
 });
 test('拆弹提示、真实键盘冻结拆弹、还债兑现',async({page})=>{
  await boot(page);
@@ -267,6 +308,30 @@ test.describe('浏览器锁定竖屏时的横屏试玩',()=>{
    await page.screenshot({path:'test-results/forced-landscape-'+width+'.png',fullPage:true});
   }
   expect(await page.evaluate(()=>(window as any).__game.diagnostics().canvasWidth)).toBe(720);
+ });
+ test('时间倒计时在旋转小屏上不遮挡操作，状态层不拦截触控',async({page})=>{
+  await rotatePage(page);
+  for(const [width,height] of [[320,568],[390,844]]) {
+   await page.setViewportSize({width,height});
+   await expect.poll(()=>page.locator('canvas').boundingBox().then(b=>Math.round(b!.width))).toBe(width);
+   await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+   await cleanRun(page);
+   await page.locator('#borrow-button').tap();await expect(page.locator('#time-state-label')).toHaveText('时间冻结');
+   await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+   const readout=(await page.locator('#time-readout').boundingBox())!;
+   expect(readout.x).toBeGreaterThanOrEqual(0);expect(readout.y+readout.height).toBeLessThanOrEqual(height);
+   for(const id of ['borrow-button','repay-button','joystick']) {
+    const control=(await page.locator('#'+id).boundingBox())!;
+    expect(readout.x+readout.width<=control.x||control.x+control.width<=readout.x||readout.y+readout.height<=control.y||control.y+control.height<=readout.y).toBe(true);
+   }
+   await expect(page.locator('#time-veil')).toHaveCSS('pointer-events','none');
+   await page.screenshot({path:`test-results/time-freeze-mobile-${width}.png`,fullPage:true});
+   await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+   await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(g.snapshot().borrowLeft);});
+   await page.locator('#repay-button').tap();await expect(page.locator('#time-state-label')).toHaveText('危险加速');
+   await page.evaluate(()=>(window as any).__game.patch({paused:true}));
+   await page.screenshot({path:`test-results/time-repay-mobile-${width}.png`,fullPage:true});
+  }
  });
  test('原生方向变化仍暂停，恢复后不丢失局面，地址栏缩放不额外暂停',async({page})=>{
   await rotatePage(page);await cleanRun(page,123);

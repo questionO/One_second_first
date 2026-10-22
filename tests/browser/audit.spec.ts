@@ -6,6 +6,8 @@ test.beforeEach(async ({ page }) => {
   (page as Page & { auditErrors: string[] }).auditErrors = errors;
   await page.goto('/?test=1');
   await page.waitForFunction(() => !!(window as any).__game);
+  await page.locator('canvas').waitFor();
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))));
 });
 test.afterEach(async ({ page }) => expect((page as Page & { auditErrors: string[] }).auditErrors).toEqual([]));
 

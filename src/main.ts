@@ -13,10 +13,11 @@ import { digits } from './digits';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = '<header class="site-header"><a class="brand" href="./" aria-label="先欠一秒首页"><span class="brand-icon">↶</span><span>先欠一秒<small>借来的奖励，要活着兑现。</small></span></a><div class="personal-best"><span>个人最佳</span><strong id="header-best">00000</strong></div></header>' +
- '<main><div id="cabinet" class="cabinet" data-mode="normal"><div id="canvas-host"></div>' +
+ '<main><div id="cabinet" class="cabinet" data-mode="normal"><div id="canvas-host"></div><div id="time-veil" class="time-veil" aria-hidden="true" hidden></div>' +
  '<div class="hud" id="hud"><div class="score"><span class="eyebrow">本局得分</span><div id="score-number"></div></div><div class="escrow"><span class="eyebrow">待兑现</span><strong id="pending">0 <i>→</i> 0</strong></div><div class="debt"><div><span id="mode-label">时间正常</span><strong id="debt-number">0.0 秒</strong></div><div class="debt-meter"><i id="debt-fill"></i><b></b><b></b></div><small id="deadline">随时可以借一秒</small></div><button id="pause-button" class="icon-button" aria-label="暂停游戏">Ⅱ</button></div>' +
  '<div class="field-caption"><span id="wave-label">准备出发</span><span id="pattern-hint"></span><span id="world-label">00:00</span></div>' +
  '<div class="controls" id="controls"><div class="movement"><div id="joystick" class="joystick" aria-label="移动摇杆"><span class="joystick-cross"></span><i id="thumb"></i></div><div class="keyboard-hint"><kbd>W</kbd><div><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><small>移动</small></div></div><div class="action-buttons"><button id="borrow-button" class="borrow-button"><span class="button-symbol">❄</span><span><strong>借 1 秒</strong><small id="borrow-hint">空格</small></span></button><button id="repay-button" class="repay-button"><span class="button-symbol">»</span><span><strong>开始还债</strong><small id="repay-hint">E</small></span></button></div></div>' +
+ '<div id="time-readout" class="time-readout" aria-hidden="true" hidden><strong id="time-state-label"></strong><div><b id="time-remaining"></b><span>秒</span><em id="time-rate"></em></div><small id="time-state-note"></small></div>' +
  '<div id="tutorial-banner" class="tutorial-banner" hidden></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>' +
  '<div id="overlay" class="overlay"><section id="panel" class="panel" aria-label="游戏菜单"></section></div>' +
  '<div id="orientation" class="orientation" hidden><span>↻</span><h2>横过来，借一秒</h2><p>浏览器没有自动旋转？<br>点击下方按钮，再把手机横着拿。</p><button class="primary" data-action="landscape">直接横屏试玩</button><small>左手移动，右手掌控时间。</small></div>' +
@@ -172,6 +173,16 @@ function updateHud() {
   el('mode-label').textContent=run.mode==='borrow'?'❄ 时间已冻结':run.mode==='repay'?'» 正在还债':'时间正常';
   el('deadline').textContent=run.mode==='repay'?'危险加速 ×2，活着兑现':run.debt>0?'最迟 '+(latestRepayIn(run)/HZ).toFixed(1)+' 秒后开始还债':'随时可以借一秒';
   el('cabinet').dataset.mode=run.mode;
+  const timeActive=playing()&&run.alive&&run.mode!=='normal', frozen=run.mode==='borrow';
+  el('time-veil').hidden=!timeActive;el('time-readout').hidden=!timeActive;
+  if(timeActive) {
+    el('time-state-label').textContent=frozen?'时间冻结':'危险加速';
+    el('time-remaining').textContent=((frozen?run.borrowLeft:run.debt)/HZ).toFixed(1);
+    el('time-rate').textContent=frozen?'×0':'×2';
+    el('time-state-note').textContent=frozen?'机关停住 · 碰到仍危险':'撑到清零，奖励兑现';
+  }
+  borrowButton.querySelector('strong')!.textContent=frozen?'时间冻结':'借 1 秒';
+  repayButton.querySelector('strong')!.textContent=run.mode==='repay'?'偿还中 ×2':'开始还债';
   el('cabinet').classList.toggle('not-playing',!playing());
   for(const id of ['hud','controls','tutorial-banner']) el(id).inert=!playing()||run.paused||orientationBlocked();
   el('header-best').textContent=String(saves.data.best?.score??0).padStart(5,'0');
@@ -192,7 +203,7 @@ function handleStep(frameInput:InputFrame) {
     audio.play(event);
     if(event.type==='wave'&&run.patternId==='minefield') toast('借时触碰核心拆弹，清债后每枚 +60',2200);
     if(event.type==='wave'&&run.patternId==='shutters') toast('进入蓝边通道，等封锁消失再换轨',2200);
-    if(event.type==='settle'&&event.value) { scene.celebrate();toast('成功兑现 +'+event.value+' 分'); }
+    if(event.type==='settle') { scene.celebrate();toast(event.value?'成功兑现 +'+event.value+' 分':'时间已还清',1400); }
     if(event.type==='disarm'&&event.value) { scene.celebrate();toast('拆弹成功！暂存 +'+event.value+'，还清后翻倍'); }
     if(event.type==='repay'&&event.automatic) toast('到期了，自动开始还债',1100);
   }

@@ -26,3 +26,19 @@ body.forced-landscape{overflow:hidden;--landscape-width:calc(100dvh - env(safe-a
 .forced-landscape .stack-buttons .primary,.forced-landscape .stack-buttons .secondary{min-height:48px;padding:8px 18px}
 .forced-landscape .tutorial-banner{top:15.8%;padding:3px 10px}
 .forced-landscape .toast{padding:8px 15px;font-size:11px}
+.time-veil{position:absolute;left:3.75%;right:3.75%;top:15.56%;bottom:27.4%;border-radius:12px;pointer-events:none;z-index:1}
+[data-mode=borrow] .time-veil{box-shadow:inset 0 0 48px 12px #66d9ff35,inset 0 0 0 2px #bcefff99;background:linear-gradient(115deg,#a9edff12,transparent 35%,transparent 65%,#a9edff12)}
+[data-mode=repay] .time-veil{box-shadow:inset 0 0 64px 16px #ff3f3547,inset 0 0 0 2px #ff765ecc;background:linear-gradient(90deg,#f0443229,transparent 20%,transparent 80%,#f0443229)}
+.time-readout{position:absolute;left:25%;width:25%;top:80.5%;text-align:left;pointer-events:none;z-index:2;color:var(--blue)}
+.time-readout>strong{display:block;font-size:14px;font-weight:900;letter-spacing:3px;line-height:1.2}
+.time-readout>div{display:flex;align-items:baseline;gap:5px;line-height:1.15}
+.time-readout b{font:700 34px Consolas,monospace;font-variant-numeric:tabular-nums;color:#f2f6ff;text-shadow:0 0 18px #66d9ff77}
+.time-readout span{font-size:11px}.time-readout em{font:700 18px Consolas,monospace;font-style:normal;margin-left:6px}
+.time-readout small{display:block;font-size:10px;line-height:1.4;color:#b4cadb;white-space:nowrap}
+[data-mode=repay] .time-readout{color:var(--red)}[data-mode=repay] .time-readout b{text-shadow:0 0 18px #ff765e99}
+.cabinet[data-mode=borrow]{box-shadow:0 24px 85px #050b2180,0 0 35px #66d9ff33}.cabinet[data-mode=repay]{border-color:var(--red);box-shadow:0 24px 85px #050b2180,0 0 35px #ff765e44}
+[data-mode=borrow] #mode-label,[data-mode=repay] #mode-label{font-weight:800;color:var(--blue)}[data-mode=repay] #mode-label{color:var(--red)}
+[data-mode=borrow] .borrow-button:disabled{opacity:.9;border-color:#bcefff;background:#285875;box-shadow:0 0 24px #66d9ff44}
+[data-mode=repay] .repay-button:disabled{opacity:.9;border-color:var(--red);background:#622e3b;color:#ffe7e0;box-shadow:0 0 24px #ff765e44}
+@media(max-width:900px){.time-readout{left:24%;top:80.5%;width:25%}.time-readout>strong{font-size:12px;letter-spacing:2px}.time-readout b{font-size:28px}.time-readout em{font-size:16px}.time-readout small{font-size:9px}}
+@media(max-width:650px){.time-readout>strong{font-size:11px;letter-spacing:1px}.time-readout b{font-size:23px}.time-readout em{font-size:14px;margin-left:3px}.time-readout small{font-size:8px}}

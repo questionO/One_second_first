@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { RULES } from './game/balance';
-import type { RunSnapshot } from './game/types';
+import type { Mode, RunSnapshot } from './game/types';
 import type { Settings } from './storage';
 const C = { field:0x1c2a50, ink:0xf2f6ff, blue:0x66d9ff, red:0xff765e, gold:0xffd66b };
 export class ArenaScene extends Phaser.Scene {
@@ -10,6 +10,8 @@ export class ArenaScene extends Phaser.Scene {
   private burstX = 0;
   private burstY = 0;
   private lastTime = 0;
+  private timeVisual = { run: null as RunSnapshot | null, mode: 'normal' as Mode, started: 0, tick: -1,
+    origin: {x:0,y:0}, trail: [] as {x:number;y:number;tick:number}[] };
   private runner = { run: null as RunSnapshot | null, tick: 0, x: 0, y: 0, phase: 0, facing: 'right' as 'left' | 'right' | 'up' | 'down', moving: false };
   constructor(private read: () => RunSnapshot, private settings: () => Settings, private frame: (delta:number) => void, private debug: () => boolean) { super('arena'); }
   create() { this.pen = this.add.graphics(); this.effects = this.add.graphics();
@@ -27,14 +29,16 @@ export class ArenaScene extends Phaser.Scene {
     this.pen.setScale(resolution); this.effects.setScale(resolution);
     const accent = s.mode === 'borrow' ? C.blue : s.mode === 'repay' ? C.red : 0x7e93c5;
     g.clear();
-    g.fillStyle(C.field,1); g.fillRoundedRect(f.left,f.top,f.right-f.left,f.bottom-f.top,12);
-    g.lineStyle(1,0x34466e,0.4);
+    g.fillStyle(s.mode==='borrow'?0x102b40:s.mode==='repay'?0x302039:C.field,1);
+    g.fillRoundedRect(f.left,f.top,f.right-f.left,f.bottom-f.top,12);
+    g.lineStyle(1,s.mode==='borrow'?0x4b8da5:s.mode==='repay'?0x78424d:0x34466e,0.4);
     for (let x = 60; x < f.right; x += 36) g.lineBetween(x,f.top+1,x,f.bottom-1);
     for (let y = 98; y < f.bottom; y += 36) g.lineBetween(f.left+1,y,f.right-1,y);
     g.lineStyle(s.mode === 'normal' ? 1 : 2,accent,0.65); g.strokeRoundedRect(f.left,f.top,f.right-f.left,f.bottom-f.top,12);
     // Clock marks belong to the playfield boundary, not the collision region.
     g.lineStyle(2,accent,0.55);
     for (let i = 0; i < 30; i++) { const x = f.left+15+i*29.5; g.lineBetween(x,f.top-10,x,f.top-(i%5===0?18:14)); }
+    this.drawTimeField(s,settings);
     for (const coin of s.coins) {
       g.fillStyle(C.gold,coin.risk?0.11:0.05); g.fillCircle(coin.x,coin.y,16);
       g.lineStyle(1,C.gold,0.9); g.strokeCircle(coin.x,coin.y,9);
@@ -95,15 +99,27 @@ export class ArenaScene extends Phaser.Scene {
       if (b.x < f.left-10 || b.x > f.right+10 || b.y < f.top-10 || b.y > f.bottom+10) continue;
       const color = s.mode === 'borrow' ? C.blue : C.red;
       if (!settings.lowQuality) {
-        g.lineStyle(s.mode==='repay'?4:2,color,0.22);
-        const n = s.mode==='repay'?0.11:0.05; g.lineBetween(b.x-b.vx*n,b.y-b.vy*n,b.x,b.y);
+        g.lineStyle(s.mode==='repay'?4:2,color,s.mode==='repay'?0.38:0.22);
+        const n = s.mode==='borrow'?0:s.mode==='repay'&&!settings.reducedMotion?0.24:0.05;
+        g.lineBetween(b.x-b.vx*n,b.y-b.vy*n,b.x,b.y);
         g.fillStyle(color,0.07); g.fillCircle(b.x,b.y,b.radius+5);
       }
       g.fillStyle(color,1); g.fillCircle(b.x,b.y,b.radius);
       g.fillStyle(C.ink,0.6); g.fillCircle(b.x-1,b.y-1,2);
+      if(s.mode==='borrow') {
+        g.lineStyle(1,C.ink,0.75);g.strokeCircle(b.x,b.y,b.radius+3);
+        g.lineBetween(b.x-2,b.y-b.radius-7,b.x-2,b.y-b.radius-4);
+        g.lineBetween(b.x+2,b.y-b.radius-7,b.x+2,b.y-b.radius-4);
+        g.fillStyle(C.red,1);g.fillCircle(b.x,b.y,2);
+      }
     }
     const p = s.player;
     this.drawRunner(s,settings);
+    if(s.alive&&s.mode==='borrow') {
+      g.lineStyle(2,C.blue,0.25);g.strokeCircle(p.x,p.y,26);
+      g.lineStyle(3,C.ink,0.95);g.beginPath();
+      g.arc(p.x,p.y,26,-Math.PI/2,-Math.PI/2+Math.PI*2*s.borrowLeft/RULES.borrowTicks);g.strokePath();
+    }
     if (s.deathAt) { g.lineStyle(2,C.red,1); g.strokeCircle(s.deathAt.x,s.deathAt.y,21); g.lineBetween(s.deathAt.x-8,s.deathAt.y-8,s.deathAt.x+8,s.deathAt.y+8); }
     if (this.debug()) {
       g.lineStyle(1,0x8dff95,1); g.strokeCircle(p.x,p.y,RULES.playerRadius);
@@ -116,6 +132,55 @@ export class ArenaScene extends Phaser.Scene {
         const t=1-this.burst/500;
         this.effects.lineStyle(2,C.gold,1-t); this.effects.strokeCircle(this.burstX,this.burstY,18+t*55);
         for(let i=0;i<10;i++) {const a=i*Math.PI/5;this.effects.fillStyle(C.gold,1-t);this.effects.fillCircle(this.burstX+Math.cos(a)*t*65,this.burstY+Math.sin(a)*t*65,2);}
+      }
+    }
+  }
+  private drawTimeField(s:RunSnapshot, settings:Settings) {
+    const t=this.timeVisual, g=this.pen, f=RULES.field;
+    if(t.run!==s) Object.assign(t,{run:s,mode:s.mode,started:s.tick,tick:-1,origin:{...s.player},trail:[]});
+    if(t.mode!==s.mode) Object.assign(t,{mode:s.mode,started:s.tick,origin:{...s.player},trail:[]});
+    if(!s.alive||s.mode==='normal') { t.trail=[];return; }
+    const age=(s.tick-t.started)/60, motion=!settings.reducedMotion;
+    if(s.mode==='borrow') {
+      if(!motion||settings.lowQuality) t.trail=[];
+      else if(s.tick!==t.tick&&!s.paused) {
+        t.trail=t.trail.filter(p=>s.tick-p.tick<18);
+        const last=t.trail.at(-1);
+        if(!last||s.tick-last.tick>=3&&Math.hypot(s.player.x-last.x,s.player.y-last.y)>4) t.trail.push({...s.player,tick:s.tick});
+      }
+      t.tick=s.tick;
+      for(const p of t.trail) {
+        const alpha=(1-(s.tick-p.tick)/18)*0.22;
+        g.fillStyle(C.blue,alpha);g.fillCircle(p.x,p.y-11,5);
+        g.lineStyle(5,C.blue,alpha);g.lineBetween(p.x,p.y-4,p.x,p.y+8);
+        g.lineStyle(2,C.blue,alpha);g.lineBetween(p.x,p.y+7,p.x-4,p.y+14);g.lineBetween(p.x,p.y+7,p.x+4,p.y+14);
+      }
+      // Draw the freeze wave behind hazards and keep every segment inside the arena.
+      if(motion&&age<0.4) {
+        const radius=25+age/0.4*950, count=settings.lowQuality?32:64;
+        g.lineStyle(5*(1-age/0.4)+1,C.ink,(1-age/0.4)*0.8);
+        for(let i=0;i<count;i++) {
+          const a=i/count*Math.PI*2,b=(i+1)/count*Math.PI*2;
+          const x=t.origin.x+Math.cos(a)*radius,y=t.origin.y+Math.sin(a)*radius;
+          const xx=t.origin.x+Math.cos(b)*radius,yy=t.origin.y+Math.sin(b)*radius;
+          if(x>f.left&&x<f.right&&y>f.top&&y<f.bottom&&xx>f.left&&xx<f.right&&yy>f.top&&yy<f.bottom) g.lineBetween(x,y,xx,yy);
+        }
+      }
+      g.lineStyle(2,C.blue,0.75);
+      for(const [x,y,sx,sy] of [[f.left+4,f.top+4,1,1],[f.right-4,f.top+4,-1,1],[f.left+4,f.bottom-4,1,-1],[f.right-4,f.bottom-4,-1,-1]]) {
+        g.lineBetween(x,y,x+sx*42,y);g.lineBetween(x,y,x,y+sy*36);
+        g.lineBetween(x,y,x+sx*22,y+sy*18);g.lineBetween(x+sx*22,y+sy*18,x+sx*33,y+sy*16);
+      }
+    } else {
+      const pulse=motion?(1+Math.sin(age*Math.PI*3.6))/2:0.5;
+      g.lineStyle(3,C.red,0.55+pulse*0.3);g.strokeRoundedRect(f.left+2,f.top+2,f.right-f.left-4,f.bottom-f.top-4,10);
+      g.fillStyle(C.red,0.08+pulse*0.08);
+      g.fillRect(f.left,f.top,12,f.bottom-f.top);g.fillRect(f.right-12,f.top,12,f.bottom-f.top);
+      if(motion&&!settings.lowQuality) for(let i=0;i<9;i++) {
+        const offset=(s.worldTick*2+i*31)%70, y=f.top+18+i*32;
+        g.lineStyle(2,C.red,0.45*(1-offset/90));
+        g.lineBetween(f.left+offset,y,f.left+offset+15,y-5);
+        g.lineBetween(f.right-offset,y,f.right-offset-15,y-5);
       }
     }
   }
