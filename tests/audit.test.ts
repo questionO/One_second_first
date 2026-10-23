@@ -5,7 +5,7 @@ import { createRun, step, summary } from '../src/game/simulation';
 import { defaults, SAVE_KEY, SaveStore } from '../src/storage';
 
 function empty() {
-  const s = createRun(42);
+  const s = createRun(42); s.hp = 1; // Exercise lethal hazard boundaries at the final heart.
   s.wavesEnabled = false; s.bullets = []; s.lasers = []; s.coins = [];
   return s;
 }
@@ -43,21 +43,20 @@ describe('审计：模拟边界', () => {
     step(s);
     expect(s.alive).toBe(false);
   });
-  it('加速的两个子步之间及时清除过期波次', () => {
+  it('2.0 补怪不清空弹体，加速第二子步仍可造成致命伤', () => {
     const s = empty(); s.wavesEnabled = true; s.waveLeft = 1; s.mode = 'repay'; s.debt = 2; s.dueAt = 480;
     s.bullets = [{ id: 999, x: 521, y: 238, vx: -900, vy: 0, radius: 6 }];
     step(s);
-    expect(s.alive).toBe(true);
-    expect(s.wave).toBe(2);
-    expect(s.waveLeft).toBe(359);
-    expect(s.worldTick).toBe(2);
+    expect(s.alive).toBe(false);
+    expect(s.bullets[0].id).toBe(999);
+    expect(s.enemies).toHaveLength(0);
   });
-  it('过期金币不能在加速的第二个子步被拾取', () => {
+  it('2.0 补怪不再取消第二子步的拾取', () => {
     const s = empty(); s.wavesEnabled = true; s.waveLeft = 1; s.mode = 'repay'; s.debt = 2; s.dueAt = 480;
     s.player.x = 100;
     s.coins = [{ id: 999, x: 120, y: 238, risk: false }];
     step(s, { x: 1, y: 0 });
-    expect(s.score).toBe(0);
+    expect(s.score).toBe(10);
   });
   it.each([NaN, Infinity, -Infinity])('异常方向 %s 不影响另一轴限速', value => {
     const s = empty(), before = { ...s.player };
@@ -89,7 +88,7 @@ describe('审计：模拟边界', () => {
 
 describe('审计：存档边界', () => {
   it('不覆盖无法识别的新版本存档', () => {
-    let text = JSON.stringify({ ...defaults(), version: 2 }); const original = text;
+    let text = JSON.stringify({ ...defaults(), version: 4 }); const original = text;
     const store = new SaveStore({ getItem: () => text, setItem: (_key, value) => { text = value; } });
     store.record(summary(createRun(1)));
     expect(text).toBe(original); expect(store.persistent).toBe(false);

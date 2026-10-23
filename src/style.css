@@ -42,3 +42,29 @@ body.forced-landscape{overflow:hidden;--landscape-width:calc(100dvh - env(safe-a
 [data-mode=repay] .repay-button:disabled{opacity:.9;border-color:var(--red);background:#622e3b;color:#ffe7e0;box-shadow:0 0 24px #ff765e44}
 @media(max-width:900px){.time-readout{left:24%;top:80.5%;width:25%}.time-readout>strong{font-size:12px;letter-spacing:2px}.time-readout b{font-size:28px}.time-readout em{font-size:16px}.time-readout small{font-size:9px}}
 @media(max-width:650px){.time-readout>strong{font-size:11px;letter-spacing:1px}.time-readout b{font-size:23px}.time-readout em{font-size:14px;margin-left:3px}.time-readout small{font-size:8px}}
+.combat-hud{position:absolute;left:4%;right:4%;top:74%;height:3%;display:flex;align-items:center;gap:16px;font-size:12px;pointer-events:none;color:#c9d6ed}
+#health{color:var(--red);font-size:18px;line-height:1;letter-spacing:4px;white-space:nowrap}#weapon-label{color:var(--gold);min-width:80px}.xp-track{height:4px;flex:1;background:#34466e;border-radius:3px;overflow:hidden}.xp-track i{display:block;height:100%;background:var(--blue)}
+.upgrade-panel{text-align:center;max-height:96%;overflow-y:auto}.upgrade-panel h2{font-size:26px;margin:10px 0}.upgrade-panel>p{font-size:12px;color:var(--muted);margin:10px 0 18px}.upgrade-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.upgrade-card{text-align:left;display:flex;flex-direction:column;gap:14px;background:#1c2a50;border:1px solid #526c92;border-top:3px solid var(--gold);border-radius:8px;padding:22px 18px;min-height:170px}.upgrade-card:hover{background:#2b3c60;border-color:var(--gold)}.upgrade-card small{font:12px Consolas,monospace;color:var(--gold)}.upgrade-card strong{font-size:20px}.upgrade-card span{font-size:12px;color:#bfcee7;line-height:1.8}.compact .combat-result{margin:5px 0;font-size:11px;color:var(--blue)}
+@media(max-width:900px){.combat-hud{font-size:10px;gap:10px}#health{font-size:17px;letter-spacing:2px}.upgrade-card{padding:14px 12px;min-height:145px;gap:10px}.upgrade-card strong{font-size:17px}.upgrade-panel h2{font-size:22px}}
+@media(max-width:650px){.combat-hud{font-size:9px;gap:8px}#health{font-size:15px}#weapon-label{min-width:64px}.upgrade-cards{gap:8px}.upgrade-card{padding:12px 9px;min-height:140px;gap:9px}.upgrade-card strong{font-size:15px}.upgrade-card span{font-size:10px}.upgrade-panel>p{font-size:10px;margin-bottom:10px}}
+.forced-landscape .upgrade-panel{max-height:96%}.forced-landscape .upgrade-card{min-height:135px;padding:12px 10px;gap:9px}.forced-landscape .upgrade-card strong{font-size:16px}.forced-landscape .upgrade-card span{font-size:10px}.forced-landscape .upgrade-panel h2{font-size:22px;margin:8px 0}.forced-landscape .upgrade-panel>p{font-size:10px;margin:8px 0 12px}
+
+/* Combat uses gold for immediate power and blue for future-round strategy. */
+.switch-button{border:1px solid #526c92;border-radius:10px;background:#263656;padding:8px 12px;min-width:80px;touch-action:none}
+.controls .action-buttons{gap:8px}.time-readout{left:23%;width:20%}.time-readout small{white-space:normal;max-width:150px}
+#weapon-label{font-size:11px;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.combat-hud{gap:10px}#health{letter-spacing:1px}
+.upgrade-panel{width:94%;padding:10px 0!important}.upgrade-panel h2{font-size:22px;margin:6px 0}.upgrade-panel>p{margin:6px 0 10px}
+.upgrade-cards.many-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.upgrade-panel .upgrade-card{padding:12px;gap:8px;min-height:120px}.upgrade-panel .many-cards .upgrade-card{min-height:115px}
+.upgrade-panel .upgrade-card strong{font-size:16px}.upgrade-panel .upgrade-card span{font-size:11px;line-height:1.5}
+.upgrade-panel .strategy-card{border-top-color:var(--blue);background:#18354b}.strategy-card small{color:var(--blue)}
+.draft-actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:10px}.draft-actions span{font-size:11px;color:var(--muted)}.draft-actions .secondary{min-height:36px;padding:6px 14px;font-size:12px}
+.upgrade-panel>.text-button{min-height:30px;padding:4px 12px;font-size:11px}
+.forced-landscape .upgrade-panel .upgrade-card{min-height:100px;padding:8px;gap:5px}.forced-landscape .upgrade-panel .upgrade-card strong{font-size:13px}.forced-landscape .upgrade-panel .upgrade-card span{font-size:10px;line-height:1.4}
+.forced-landscape .upgrade-panel h2{font-size:17px;margin:4px 0}.forced-landscape .upgrade-panel>p{margin:4px 0 6px;font-size:10px}.forced-landscape .upgrade-card small{font-size:9px}
+.forced-landscape .draft-actions{margin-top:5px}.forced-landscape .draft-actions span{font-size:9px}.forced-landscape .draft-actions .secondary{min-height:30px;font-size:10px}
+@media(max-width:650px){.switch-button{min-width:65px;padding:6px}.controls{left:4%;right:4%}.action-buttons .borrow-button,.action-buttons .repay-button{min-width:96px;padding:6px 8px}.time-readout{left:18%;width:20%}.time-readout small{font-size:8px;max-width:95px}.time-readout>strong{font-size:10px}.time-readout b{font-size:22px}.combat-hud{gap:6px}#weapon-label{font-size:9px}#level-label{font-size:9px}.upgrade-panel .many-cards .upgrade-card{min-height:96px}}
+
+#next-draft{color:var(--blue);font-size:10px;white-space:nowrap}#combat-time{display:none}.combat-hud .xp-track{min-width:25px}
+
+.boss-label{position:absolute;top:18%;left:31%;width:38%;text-align:center;font-size:11px;color:#ffad9d;pointer-events:none;text-shadow:0 1px 4px #101a3a}.forced-landscape .boss-label{font-size:9px}

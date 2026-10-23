@@ -1,13 +1,16 @@
 import type { RunSummary } from './game/types';
+import { RULES_VERSION } from './game/balance';
 export type Settings = { volume: number; muted: boolean; reducedMotion: boolean; lowQuality: boolean };
-export type SaveData = { version: 1; tutorialDone: boolean; settings: Settings; best: RunSummary | null; recent: RunSummary[] };
-export const SAVE_KEY = 'one-second-first.save.v1';
-export function defaults(): SaveData { return { version: 1, tutorialDone: false, settings: { volume: 0.35, muted: false, reducedMotion: false, lowQuality: false }, best: null, recent: [] }; }
+export type SaveData = { version: 3; tutorialDone: boolean; settings: Settings; best: RunSummary | null; recent: RunSummary[] };
+export const SAVE_KEY = 'one-second-first.save.v3';
+export const PREVIOUS_SAVE_KEY = 'one-second-first.save.v2';
+export const LEGACY_SAVE_KEY = 'one-second-first.save.v1';
+export function defaults(): SaveData { return { version: 3, tutorialDone: false, settings: { volume: 0.35, muted: false, reducedMotion: false, lowQuality: false }, best: null, recent: [] }; }
 function validSummary(v: unknown): v is RunSummary {
   if (!v || typeof v !== 'object') return false;
   const s = v as RunSummary;
-  return ['seed','score','ticks','borrowCount','settlements','lostPending','wave'].every(k => typeof s[k as keyof RunSummary] === 'number' && Number.isSafeInteger(s[k as keyof RunSummary]) && Number(s[k as keyof RunSummary]) >= 0)
-    && typeof s.rulesVersion === 'string' && typeof s.deathReason === 'string';
+  return ['seed','score','ticks','borrowCount','settlements','lostPending','wave','kills','level'].every(k => typeof s[k as keyof RunSummary] === 'number' && Number.isSafeInteger(s[k as keyof RunSummary]) && Number(s[k as keyof RunSummary]) >= 0)
+    && s.rulesVersion === RULES_VERSION && s.level>=1 && typeof s.deathReason === 'string';
 }
 export class SaveStore {
   data = defaults();
@@ -17,8 +20,14 @@ export class SaveStore {
   constructor(private storage: Pick<Storage, 'getItem' | 'setItem'> | null) {
     try {
       if (!storage) throw new Error('Storage unavailable');
-      this.data = readSave(storage.getItem(SAVE_KEY));
-      this.savedSettings = { ...this.data.settings };
+      const current=storage.getItem(SAVE_KEY);
+      this.data = readSave(current);
+      if(current===null) {
+        for(const [key,version] of [[PREVIOUS_SAVE_KEY,2],[LEGACY_SAVE_KEY,1]] as const){
+          let old;try{old=JSON.parse(storage.getItem(key)??'null');}catch{}
+          if(old?.version===version&&old.settings){this.data.settings=readSettings(old.settings);break;}
+        }
+      } else this.savedSettings = { ...this.data.settings };
     } catch { this.persistent = false; return; }
     this.persist();
   }
@@ -42,6 +51,7 @@ export class SaveStore {
     catch { this.persistent = false; }
   }
   record(s: RunSummary): boolean {
+    if(!validSummary(s)) return false;
     const record = { ...s };
     if (better(record, this.data.best)) this.data.best = record;
     this.pendingRuns = [record, ...this.pendingRuns].slice(0,20);
@@ -56,16 +66,17 @@ function readSave(text: string | null): SaveData {
   const data = defaults();
   let v;
   try { v = text ? JSON.parse(text) : null; } catch { return data; }
-  if (typeof v?.version === 'number' && v.version > 1) throw new Error('Unsupported save version');
-  if (v?.version === 1 && typeof v.tutorialDone === 'boolean' && v.settings && Array.isArray(v.recent)) {
+  if (typeof v?.version === 'number' && v.version > 3) throw new Error('Unsupported save version');
+  if (v?.version === 3 && typeof v.tutorialDone === 'boolean' && v.settings && Array.isArray(v.recent)) {
     data.tutorialDone = v.tutorialDone;
-    const s = v.settings;
-    data.settings = {
-      volume: typeof s.volume === 'number' && Number.isFinite(s.volume) ? Math.max(0, Math.min(1, s.volume)) : 0.35,
-      muted: s.muted === true, reducedMotion: s.reducedMotion === true, lowQuality: s.lowQuality === true,
-    };
+    data.settings = readSettings(v.settings);
     data.best = validSummary(v.best) ? v.best : null;
     data.recent = v.recent.filter(validSummary).slice(0,20);
   }
   return data;
+}
+function readSettings(value:unknown):Settings {
+  const s=(value&&typeof value==='object'?value:{}) as Partial<Settings>;
+  return {volume:typeof s.volume==='number'&&Number.isFinite(s.volume)?Math.max(0,Math.min(1,s.volume)):0.35,
+    muted:s.muted===true,reducedMotion:s.reducedMotion===true,lowQuality:s.lowQuality===true};
 }

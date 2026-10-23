@@ -3,11 +3,12 @@ export class InputController {
   private keys = new Set<string>();
   private borrow = false;
   private repay = false;
+  private switching = false;
   private touch: number | null = null;
   private vector = { x: 0, y: 0 };
   private enabled = false;
   private cleanup = new AbortController();
-  constructor(private joystick: HTMLElement, private thumb: HTMLElement, borrowButton: HTMLButtonElement, repayButton: HTMLButtonElement, private pause: () => void, private enter: () => void, private rotated: () => boolean) {
+  constructor(private joystick: HTMLElement, private thumb: HTMLElement, borrowButton: HTMLButtonElement, repayButton: HTMLButtonElement, private pause: () => void, private enter: () => void, private rotated: () => boolean, switchButton?:HTMLButtonElement) {
     const signal = this.cleanup.signal;
     window.addEventListener('keydown', e => {
       if (e.target instanceof HTMLInputElement) return;
@@ -20,6 +21,7 @@ export class InputController {
       this.keys.add(e.code);
       if (e.code === 'Space') this.borrow = true;
       if (e.code === 'KeyE') this.repay = true;
+      if (e.code === 'KeyQ') this.switching = true;
     }, { signal });
     window.addEventListener('keyup', e => this.keys.delete(e.code), { signal });
     borrowButton.addEventListener('pointerdown', e => { if (!borrowButton.disabled && this.enabled) { e.preventDefault(); this.borrow = true; } }, { signal });
@@ -27,6 +29,8 @@ export class InputController {
     // Keyboard/screen-reader click activation has detail 0, pointer activation is already handled.
     borrowButton.addEventListener('click', e => { if (e.detail === 0 && this.enabled) this.borrow = true; }, { signal });
     repayButton.addEventListener('click', e => { if (e.detail === 0 && this.enabled) this.repay = true; }, { signal });
+    switchButton?.addEventListener('pointerdown',e=>{if(this.enabled&&!switchButton.disabled){e.preventDefault();this.switching=true;}},{signal});
+    switchButton?.addEventListener('click',e=>{if(e.detail===0&&this.enabled)this.switching=true;},{signal});
     joystick.addEventListener('pointerdown', e => {
       if (!this.enabled || this.touch !== null) return;
       e.preventDefault(); this.touch = e.pointerId; joystick.setPointerCapture(e.pointerId); this.move(e);
@@ -48,14 +52,14 @@ export class InputController {
     this.thumb.style.transform = 'translate(' + (x * radius) + 'px,' + (y * radius) + 'px)';
   }
   setEnabled(value: boolean) { if (this.enabled !== value) this.clear(); this.enabled = value; }
-  clear() { this.keys.clear(); this.borrow = false; this.repay = false; this.vector = {x:0,y:0}; this.touch = null; this.thumb.style.transform = ''; }
+  clear() { this.keys.clear(); this.borrow = false; this.repay = false; this.switching = false; this.vector = {x:0,y:0}; this.touch = null; this.thumb.style.transform = ''; }
   read(): InputFrame {
     if (!this.enabled) return {x:0,y:0};
     const has = (...codes: string[]) => codes.some(c => this.keys.has(c)) ? 1 : 0;
     const x = has('KeyD','ArrowRight') - has('KeyA','ArrowLeft') + this.vector.x;
     const y = has('KeyS','ArrowDown') - has('KeyW','ArrowUp') + this.vector.y;
-    const result = { x, y, borrow:this.borrow, repay:this.repay };
-    this.borrow = false; this.repay = false; return result;
+    const result = { x, y, borrow:this.borrow, repay:this.repay, switch:this.switching };
+    this.borrow = false; this.repay = false; this.switching = false; return result;
   }
   destroy() { this.cleanup.abort(); this.clear(); }
 }

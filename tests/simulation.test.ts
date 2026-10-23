@@ -7,10 +7,10 @@ import { FixedClock } from '../src/game/clock';
 import { sweptCircle,sweptRect } from '../src/game/collision';
 import type { InputFrame,RunSnapshot } from '../src/game/types';
 
-function empty() { const s=createRun(42);s.wavesEnabled=false;s.bullets=[];s.lasers=[];s.mines=[];s.coins=[];return s; }
+function empty() { const s=createRun(42);s.hp=1;s.wavesEnabled=false;s.bullets=[];s.lasers=[];s.mines=[];s.coins=[];return s; }
 function ticks(s:RunSnapshot,n:number,input:InputFrame={x:0,y:0}) { for(let i=0;i<n;i++)step(s,i===0?input:{x:input.x,y:input.y}); }
 describe('时间借贷与收益',()=>{
- it('零收益还清不计为成功兑现',()=>{const s=empty();ticks(s,60,{x:0,y:0,borrow:true});ticks(s,60,{x:0,y:0,repay:true});expect(s.debt).toBe(0);expect(s.settlements).toBe(0);expect(s.score).toBe(0);});
+ it('零收益仍记录清债，允许触发清债回响',()=>{const s=empty();ticks(s,60,{x:0,y:0,borrow:true});ticks(s,60,{x:0,y:0,repay:true});expect(s.debt).toBe(0);expect(s.settlements).toBe(1);expect(s.score).toBe(0);});
  it('冻结一秒，玩家正常移动，机关不推进',()=>{
   const s=empty();s.bullets=[{id:8,x:100,y:100,vx:100,vy:0,radius:6}];const x=s.player.x;
   ticks(s,60,{x:1,y:0,borrow:true});
@@ -81,7 +81,7 @@ describe('帧率与确定性',()=>{
  it('冻结期间波次与金币有效期不流逝',()=>{
   const s=empty();s.wavesEnabled=true;s.waveLeft=1;s.coins=[{id:1,x:100,y:100,risk:false}];
   ticks(s,60,{x:0,y:0,borrow:true});expect(s.waveLeft).toBe(1);expect(s.coins[0].id).toBe(1);
-  step(s);expect(s.coins).toHaveLength(6);expect(s.wave).toBe(2);
+  step(s);expect(s.coins).toHaveLength(1);expect(s.wave).toBe(1);expect(s.enemies.length).toBeGreaterThan(0);
  });
  it('第二个加速子步死亡会取消第一个子步拾取',()=>{
   const s=empty();s.mode='repay';s.debt=2;s.dueAt=480;

@@ -5,10 +5,18 @@ test('生产构建可启动并移除开发诊断接口',async({page})=>{
  await expect(page.getByRole('heading',{name:'先欠一秒',exact:true})).toBeVisible();
  expect(await page.evaluate(()=>typeof (window as any).__game)).toBe('undefined');
  await expect(page.locator('#debug')).toBeHidden();
+ await page.locator('canvas').waitFor();
+ await page.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>r())))));
  await page.getByRole('button',{name:'开始挑战'}).click();
  await page.getByRole('button',{name:'跳过教学'}).click();
+ await page.locator('[data-action=starter][data-kind=gun]').click();
  await expect(page.locator('#borrow-button')).toBeEnabled();
+ await expect(page.locator('#health')).toHaveAttribute('aria-label','生命 3 / 3');
  await page.keyboard.press('Space');await expect(page.locator('#mode-label')).toContainText('冻结');
+ await expect(page.locator('#repay-button')).toBeEnabled();
+ await page.locator('#repay-button').click();await expect(page.locator('#mode-label')).toContainText('还债');
+ await expect(page.locator('#debt-number')).toHaveText('0.0 秒');
+ await expect(page.locator('#level-label')).not.toContainText('· 0 击杀',{timeout:30000});
  await page.screenshot({path:'release-results/release.png',fullPage:true});
  expect(errors).toEqual([]);
 });

@@ -24,9 +24,9 @@ test('键盘移动、借时、手动还债和暂停恢复',async({page})=>{
  const moved=await page.evaluate(()=>(window as any).__game.snapshot().player.x);
  expect(moved).toBeGreaterThan(500);
  await page.keyboard.press('Space');await expect(page.locator('#mode-label')).toContainText('冻结');
- await page.waitForTimeout(1100);await page.keyboard.press('KeyE');
+ await page.waitForFunction(()=>{const s=(window as any).__game.snapshot();return s.mode==='normal'&&s.debt===60;});await page.keyboard.press('KeyE');
  await expect(page.locator('#mode-label')).toContainText('还债');
- await page.waitForTimeout(1100);await expect(page.locator('#debt-number')).toHaveText('0.0 秒');
+ await expect(page.locator('#debt-number')).toHaveText('0.0 秒');
  await page.keyboard.press('Escape');await expect(page.getByRole('heading',{name:'先喘口气'})).toBeVisible();
  const tick=await page.evaluate(()=>(window as any).__game.snapshot().tick);
  await page.waitForTimeout(200);expect(await page.evaluate(()=>(window as any).__game.snapshot().tick)).toBe(tick);
@@ -34,8 +34,8 @@ test('键盘移动、借时、手动还债和暂停恢复',async({page})=>{
  expect(await page.evaluate(()=>(window as any).__game.screen())).toBe('play');
 });
 test('死亡结算、同种子重试、纪录与重开不泄漏',async({page})=>{
- await boot(page);await cleanRun(page,98765);
- await page.evaluate(()=>{const g=(window as any).__game;g.patch({score:90,pending:30,bullets:[{id:7,x:g.snapshot().player.x,y:g.snapshot().player.y,vx:0,vy:0,radius:6}]});g.advance(1);});
+ await boot(page);
+ await page.evaluate(()=>{const g=(window as any).__game;g.start(98765);g.patch({wavesEnabled:false,hp:1,score:90,pending:30,bullets:[{id:7,x:g.snapshot().player.x,y:g.snapshot().player.y,vx:0,vy:0,radius:6}]});g.advance(1);});
  await expect(page.getByRole('heading',{name:'下次，早点还。'})).toBeVisible();
  await expect(page.locator('.result-stats')).toContainText('60 分');
  await expect(page.getByRole('button',{name:'重试同一局面'})).toBeEnabled();
@@ -49,13 +49,15 @@ test('死亡结算、同种子重试、纪录与重开不泄漏',async({page})=>
 });
 test('互动教学完成后不写入正式纪录',async({page})=>{
  await boot(page);await page.getByRole('button',{name:'练习一下'}).click();
- await page.evaluate(()=>{const g=(window as any).__game;g.patch({player:{x:405,y:238}});g.advance(1);});
- await expect(page.locator('#tutorial-banner')).toContainText('2 / 3');
- await page.evaluate(()=>{const g=(window as any).__game;g.patch({bullets:[],player:{x:440,y:238}});g.advance(60,{x:0,y:0,borrow:true});});
- await expect(page.locator('#tutorial-banner')).toContainText('3 / 3');
- await page.evaluate(()=>(window as any).__game.advance(60,{x:0,y:0,repay:true}));
+ await page.evaluate(()=>{const g=(window as any).__game;g.advance(120);});
+ await expect(page.locator('#tutorial-banner')).toContainText('2 / 5');
+ await page.evaluate(()=>{const g=(window as any).__game;g.patch({player:{x:420,y:238}});g.advance(1);g.advance(1,{x:0,y:0,switch:true});});
+ await expect(page.locator('#tutorial-banner')).toContainText('3 / 5');
+ await page.evaluate(()=>{const g=(window as any).__game;g.advance(15,{x:0,y:0,borrow:true});g.advance(15,{x:0,y:0,repay:true});});
+ await page.locator('[data-upgrade=train_gun]').click();await page.locator('[data-upgrade=expand]').click();
+ while(await page.locator('.upgrade-card:not(.strategy-card)').count()){await page.locator('.upgrade-card:not(.strategy-card)').first().click();}
  await expect(page.getByRole('heading',{name:'这笔时间，还清了。'})).toBeVisible();
- expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('one-second-first.save.v1')!).recent.length)).toBe(0);
+ expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('one-second-first.save.v3')!).recent.length)).toBe(0);
 });
 test('存储不可用仍可开始与设置',async({page})=>{
  await page.addInitScript(()=>Object.defineProperty(window,'localStorage',{get(){throw new Error('blocked');}}));
@@ -150,6 +152,7 @@ for(const reducedMotion of [false,true]) test(`时间视觉反馈跟随冻结、
  await expect(page.locator('#time-rate')).toHaveText('×0');
  await page.evaluate(()=>(window as any).__game.patch({paused:true}));
  const frozen=await page.evaluate(()=>(window as any).__game.snapshot());
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
  await page.screenshot({path:`test-results/time-freeze-${reducedMotion}.png`,fullPage:true,animations:'disabled'});
  const picture=await page.locator('canvas').screenshot({animations:'disabled'});
  await page.waitForTimeout(150);expect((await page.locator('canvas').screenshot({animations:'disabled'})).equals(picture)).toBe(true);
@@ -169,15 +172,18 @@ for(const reducedMotion of [false,true]) test(`时间视觉反馈跟随冻结、
  await expect(page.locator('#time-state-label')).toHaveText('危险加速');
  await page.evaluate(()=>{const g=(window as any).__game;g.patch({paused:false});g.advance(60);g.patch({paused:true});});
  await expect(page.locator('#time-readout')).toBeHidden();await expect(page.locator('#time-veil')).toBeHidden();
- await cleanRun(page);await page.evaluate(()=>{const g=(window as any).__game;g.patch({bullets:[{id:999,...g.snapshot().player,vx:0,vy:0,radius:6}]});g.advance(1,{x:0,y:0,borrow:true});});
+ await cleanRun(page);await page.evaluate(()=>{const g=(window as any).__game;g.patch({hp:1,bullets:[{id:999,...g.snapshot().player,vx:0,vy:0,radius:6}]});g.advance(1,{x:0,y:0,borrow:true});});
  await expect(page.locator('#time-readout')).toBeHidden();await expect(page.locator('#time-veil')).toBeHidden();
 });
 test('拆弹提示、真实键盘冻结拆弹、还债兑现',async({page})=>{
  await boot(page);
- await page.evaluate(()=>{const g=(window as any).__game;g.start(42);g.patch({tick:359,worldTick:359,waveLeft:1});g.advance(1);g.patch({wavesEnabled:false});});
+ await page.evaluate(()=>{const g=(window as any).__game;g.start(42);g.wave('minefield');g.patch({wavesEnabled:false,paused:true});});
  await expect(page.locator('#pattern-hint')).toContainText('借时触碰菱形拆弹');
- await expect(page.locator('#toast')).toContainText('清债后每枚 +60');
  await page.screenshot({path:'test-results/minefield-desktop.png',fullPage:true});
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+ await page.evaluate(()=>(window as any).__game.patch({paused:false}));
+ await expect(page.locator('#borrow-button')).toBeEnabled();
+ await page.waitForFunction(()=>(window as any).__game.snapshot().tick>2);
  await page.keyboard.press('Space');
  await expect(page.locator('#toast')).toContainText('拆弹成功');
  const frozen=await page.evaluate(()=>(window as any).__game.snapshot());

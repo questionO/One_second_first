@@ -5,7 +5,7 @@ import { createRun, step } from '../src/game/simulation';
 import type { RunSnapshot } from '../src/game/types';
 
 function empty() {
-  const s = createRun(42);
+  const s = createRun(42); s.hp = 1; // Exercise lethal hazard boundaries at the final heart.
   s.wavesEnabled = false; s.bullets = []; s.lasers = []; s.mines = []; s.coins = [];
   return s;
 }
@@ -106,9 +106,9 @@ describe('换轨与可达路线', () => {
 });
 
 describe('波次节奏与实体边界', () => {
-  it('第二波必有拆弹，第三波必有换轨，后续至少隔波出现新机关', () => {
+  it('旧机关诊断编排保留，但主玩法不自动生成整屏封锁', () => {
     for (let seed = 0; seed < 30; seed++) {
-      const s = createRun(seed);
+      const s = createRun(seed); spawnWave(s);
       for (let wave = 2; wave <= 30; wave++) {
         s.worldTick += s.waveLeft; spawnWave(s);
         if (wave === 2) expect(s.patternId).toBe('minefield');
